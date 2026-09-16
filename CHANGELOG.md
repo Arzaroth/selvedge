@@ -10,6 +10,12 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Fixed
+
+- The README said TailGauge is GPL-3.0-or-later. Its `Cargo.toml` said so and
+  its `LICENSE` file did not; the licence is permissive, and the paragraph
+  explaining away a conflict that did not exist is gone.
+
 ### Changed
 
 - Dual-licensed MIT OR WTFPL, matching TokenGauge. It was MIT; nothing is taken
