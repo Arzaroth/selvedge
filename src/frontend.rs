@@ -121,7 +121,12 @@ impl Frontend {
         self.version_in(&self.dest_dir()?)
     }
 
-    fn version_in(&self, dir: &Path) -> Option<String> {
+    /// The version a payload declares, wherever that payload sits.
+    ///
+    /// Public because a project's own tests are what check that its manifests
+    /// and its binary agree before a release is cut; the release workflow
+    /// refuses the tag otherwise, which is a slower way to learn it.
+    pub fn version_in(&self, dir: &Path) -> Option<String> {
         let (file, pointer) = match self.version_source {
             VersionSource::PlasmaMetadata => ("metadata.json", "/KPlugin/Version"),
             VersionSource::GnomeMetadata => ("metadata.json", "/version-name"),
