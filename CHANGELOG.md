@@ -10,6 +10,11 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Changed
+
+- Dual-licensed MIT OR WTFPL, matching TokenGauge. It was MIT; nothing is taken
+  away.
+
 ## [0.3.1] - 2026-09-16
 
 ### Fixed
