@@ -6,6 +6,7 @@
 //! neither store - not the KDE Store, not extensions.gnome.org - so every copy
 //! is ours, and the refusal the shell helper carried is gone.
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -417,6 +418,10 @@ pub fn refresh_aliases(project: &Project, install_dir: &Path) {
     if !install_dir.join(project.primary()).is_file() {
         return;
     }
+    // An alias is a symlink, so there are none to refresh where there are no
+    // symlinks. A Windows project ships its extra names as real executables in
+    // the archive, which the replace loop above has already written.
+    #[cfg(unix)]
     for alias in project.aliases {
         let path = install_dir.join(alias);
         if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink())
@@ -591,7 +596,9 @@ mod tests {
         );
     }
 
+    // Aliases are symlinks, so this is about a platform that has them.
     #[test]
+    #[cfg(unix)]
     fn every_old_helper_name_becomes_a_link_to_the_binary() {
         let dir = scratch("aliases");
         std::fs::write(dir.join(SAMPLE.primary()), b"binary").unwrap();
@@ -609,7 +616,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // Aliases are symlinks, so this is about a platform that has them.
     #[test]
+    #[cfg(unix)]
     fn an_upgrade_from_the_shell_helpers_replaces_the_scripts() {
         // What 0.4.0 leaves behind: real bash scripts. Left in place they would
         // answer for their names forever.
@@ -629,7 +638,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // Aliases are symlinks, so this is about a platform that has them.
     #[test]
+    #[cfg(unix)]
     fn a_missing_binary_leaves_the_helpers_alone() {
         // The half-extracted archive case: replacing a working helper with a
         // link to a file that is not there is worse than doing nothing.
@@ -648,7 +659,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // Aliases are symlinks, so this is about a platform that has them.
     #[test]
+    #[cfg(unix)]
     fn refreshing_an_existing_set_of_aliases_is_a_no_op() {
         let dir = scratch("idempotent");
         std::fs::write(dir.join(SAMPLE.primary()), b"binary").unwrap();
@@ -674,6 +687,7 @@ mod tests {
             "a helper nothing writes any more still answers for its own name"
         );
         // And the aliases it does write are still there.
+        #[cfg(unix)]
         assert_eq!(
             std::fs::read_link(dir.join(SAMPLE.aliases[0])).unwrap(),
             Path::new(SAMPLE.primary())
@@ -725,7 +739,9 @@ mod tests {
         ));
     }
 
+    // Aliases are symlinks, so this is about a platform that has them.
     #[test]
+    #[cfg(unix)]
     fn the_primary_binary_is_the_one_the_rest_are_named_after() {
         assert_eq!(SAMPLE.primary(), "samplegauge");
         // And the aliases point at it, not at a later one.
