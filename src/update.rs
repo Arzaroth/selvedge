@@ -395,6 +395,13 @@ pub fn refresh_aliases(project: &Project, install_dir: &Path) {
         let _ = std::fs::remove_file(&path);
         let _ = std::os::unix::fs::symlink(project.binary, &path);
     }
+    // Names an older layout installed that this one does not write. Left in
+    // place they answer for themselves forever: whatever a key binding or a
+    // unit file points at is what runs, and the binary does not answer to
+    // these, so the copy on disk is the only thing that can.
+    for stale in project.legacy {
+        let _ = std::fs::remove_file(install_dir.join(stale));
+    }
 }
 
 #[cfg(test)]
@@ -491,6 +498,39 @@ mod tests {
             std::fs::read_link(dir.join(SAMPLE.aliases[0])).unwrap(),
             Path::new(SAMPLE.binary)
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_name_the_new_layout_does_not_write_is_taken_away() {
+        let dir = scratch("legacy");
+        std::fs::write(dir.join(SAMPLE.binary), b"binary").unwrap();
+        let stale = dir.join(SAMPLE.legacy[0]);
+        std::fs::write(&stale, b"#!/bin/bash\n").unwrap();
+
+        refresh_aliases(PROJECT, &dir);
+        assert!(
+            !stale.exists(),
+            "a helper nothing writes any more still answers for its own name"
+        );
+        // And the aliases it does write are still there.
+        assert_eq!(
+            std::fs::read_link(dir.join(SAMPLE.aliases[0])).unwrap(),
+            Path::new(SAMPLE.binary)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn nothing_is_taken_away_when_there_is_no_binary_to_replace_it() {
+        // Half an install is worse than the old one: without the binary these
+        // names are all that works.
+        let dir = scratch("legacy-no-binary");
+        let stale = dir.join(SAMPLE.legacy[0]);
+        std::fs::write(&stale, b"#!/bin/bash\n").unwrap();
+
+        refresh_aliases(PROJECT, &dir);
+        assert!(stale.exists(), "it was the only thing left that ran");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
