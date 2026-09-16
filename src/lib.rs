@@ -11,11 +11,13 @@
 //! declared by the caller in a [`Project`] and handed back in.
 
 pub mod frontend;
+pub mod proc;
 pub mod state;
 #[cfg(feature = "self-update")]
 pub mod update;
 
 pub use frontend::{Frontend, Restart, VersionSource};
+pub use proc::which;
 pub use state::UpdateStatus;
 
 /// Everything the machinery cannot know about the project driving it.
@@ -87,27 +89,6 @@ impl Project {
             },
         }
     }
-}
-
-/// Resolve a program on PATH. Small enough to keep here rather than take a
-/// dependency on, and `which` as a subprocess is a spawn to do what reading
-/// PATH does.
-pub fn which(name: &str) -> Option<std::path::PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(name))
-        .find(|candidate| is_executable(candidate))
-}
-
-#[cfg(unix)]
-fn is_executable(path: &std::path::Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-}
-
-#[cfg(not(unix))]
-fn is_executable(path: &std::path::Path) -> bool {
-    path.is_file()
 }
 
 /// A project that does not exist, so the machinery can be driven without
