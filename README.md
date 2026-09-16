@@ -58,6 +58,14 @@ the next update proceeds. A lock file that means "locked" while it merely
 exists survives the crash and blocks every later update until somebody deletes
 it by hand.
 
+## Features
+
+`self-update` is on by default and is the half that links a network stack:
+fetching a release, replacing the binary. A caller that only installs payloads
+and reads a cached check - a GUI that shells out to whoever owns the network -
+takes the crate with `default-features = false` and still gets `frontend` and
+`state`.
+
 ## Windows
 
 A project installed by an MSI is upgraded by the MSI, because replacing the

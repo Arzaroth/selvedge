@@ -1,6 +1,6 @@
 [package]
 name = "selvedge"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 # File::try_lock, which the update lock is built on, is stable from 1.89.
 rust-version = "1.89"
@@ -12,5 +12,12 @@ repository = "https://github.com/Arzaroth/selvedge"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-self_update = { version = "0.44", default-features = false, features = ["reqwest", "rustls", "archive-tar", "compression-flate2", "archive-zip", "compression-zip-deflate"] }
-http = "1"
+self_update = { version = "0.44", default-features = false, features = ["reqwest", "rustls", "archive-tar", "compression-flate2", "archive-zip", "compression-zip-deflate"], optional = true }
+http = { version = "1", optional = true }
+
+[features]
+default = ["self-update"]
+# Fetching a release is the half that links a network stack. A caller that only
+# installs payloads - a GUI reading a cached check and shelling out to whoever
+# owns the network - takes this crate without it.
+self-update = ["dep:self_update", "dep:http"]

@@ -8,7 +8,9 @@
 //!
 //! Most of what this file checks, it checks by compiling.
 
-use selvedge::{Frontend, Project, Restart, VersionSource, frontend, state, update};
+#[cfg(feature = "self-update")]
+use selvedge::update;
+use selvedge::{Frontend, Project, Restart, VersionSource, frontend, state};
 
 const TAILGAUGE_FRONTENDS: &[Frontend] = &[
     Frontend {
@@ -127,6 +129,16 @@ fn the_repository_is_overridable_per_project() {
     assert_eq!((owner.as_str(), name.as_str()), ("Arzaroth", "TokenGauge"));
 }
 
+/// The half a GUI takes: it installs payloads and reads a cached check, and
+/// never links the network stack that produced it.
+#[test]
+fn a_caller_can_take_the_payload_installer_without_the_updater() {
+    let present = frontend::installed(&TOKENGAUGE);
+    let _ = present.len();
+    assert!(frontend::find(&TOKENGAUGE, "gnome").is_some());
+    let _ = state::update_cache_file(&TAILGAUGE);
+}
+
 #[test]
 fn each_project_caches_under_its_own_name() {
     let a = state::update_cache_file(&TAILGAUGE);
@@ -147,6 +159,7 @@ fn every_frontend_id_resolves_for_the_project_that_ships_it() {
 
 /// Nothing here runs: it exists so the call sites both projects have today
 /// fail to compile if this crate's surface moves under them.
+#[cfg(feature = "self-update")]
 #[allow(dead_code)]
 fn the_api_both_callers_use(project: &Project) -> anyhow::Result<()> {
     let cache = state::update_cache_file(project);

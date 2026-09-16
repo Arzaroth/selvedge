@@ -12,6 +12,7 @@
 
 pub mod frontend;
 pub mod state;
+#[cfg(feature = "self-update")]
 pub mod update;
 
 pub use frontend::{Frontend, Restart, VersionSource};
