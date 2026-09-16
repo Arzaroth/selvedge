@@ -27,6 +27,13 @@ pub const CACHE_TTL_MS: i64 = 6 * 60 * 60 * 1000;
 /// Public because a consumer's own tests are what check that its release
 /// workflow publishes an asset this will go looking for. Getting that wrong
 /// produces a release nothing can update from, with green CI.
+///
+/// Windows releases ship a zip, because that is what a Windows user can open
+/// without installing anything. It has to agree with [`archive_kind`], or the
+/// asset that is downloaded is handed to the wrong extractor.
+#[cfg(windows)]
+pub const ARCHIVE_SUFFIX: &str = ".zip";
+#[cfg(not(windows))]
 pub const ARCHIVE_SUFFIX: &str = ".tar.gz";
 
 // ---------------------------------------------------------------------------
@@ -70,12 +77,37 @@ pub fn check_cached(project: &Project, cache_file: &Path, force: bool) -> Result
 /// Substring the release asset name must contain for the running platform.
 ///
 /// Public for the same reason as [`ARCHIVE_SUFFIX`].
-/// Matches the release workflow's `<binary>-<tag>-<target>.tar.gz` naming.
+/// Matches the release workflow's `<binary>-<tag>-<target><suffix>` naming.
+///
+/// The operating system is part of it, not just the architecture: an x86_64
+/// answer that named only the architecture matched the Linux asset on Windows,
+/// and the update downloaded a tarball of ELF binaries.
+#[cfg(windows)]
+pub fn arch_target() -> Result<&'static str> {
+    match std::env::consts::ARCH {
+        "x86_64" => Ok("windows-x86_64"),
+        other => bail!("unsupported arch: {other}"),
+    }
+}
+
+#[cfg(not(windows))]
 pub fn arch_target() -> Result<&'static str> {
     match std::env::consts::ARCH {
         "x86_64" => Ok("linux-x86_64"),
         "aarch64" | "arm64" => Ok("linux-aarch64"),
         other => bail!("unsupported arch: {other}"),
+    }
+}
+
+/// The extractor for the asset [`ARCHIVE_SUFFIX`] asks for.
+fn archive_kind() -> self_update::ArchiveKind {
+    #[cfg(windows)]
+    {
+        self_update::ArchiveKind::Zip
+    }
+    #[cfg(not(windows))]
+    {
+        self_update::ArchiveKind::Tar(Some(self_update::Compression::Gz))
     }
 }
 
@@ -376,9 +408,7 @@ fn fetch_into(tmp: &Path, name: &str, url: &str) -> Result<()> {
         .context("download failed")?;
 
     self_update::Extract::from_source(&archive)
-        .archive(self_update::ArchiveKind::Tar(Some(
-            self_update::Compression::Gz,
-        )))
+        .archive(archive_kind())
         .extract_into(tmp)
         .context("extract failed")
 }
@@ -863,5 +893,30 @@ mod tests {
             c.latest.as_deref().is_some_and(|v| !v.is_empty())
                 && state::now_ms().saturating_sub(c.checked_ms) < CACHE_TTL_MS
         })
+    }
+
+    /// The extractor and the asset asked for have to describe the same file.
+    /// Nothing downstream notices the disagreement: the download succeeds and
+    /// the extraction fails on a machine no one is building on.
+    #[test]
+    fn the_archive_kind_matches_the_suffix_the_updater_asks_for() {
+        match archive_kind() {
+            self_update::ArchiveKind::Zip => assert_eq!(ARCHIVE_SUFFIX, ".zip"),
+            self_update::ArchiveKind::Tar(_) => assert_eq!(ARCHIVE_SUFFIX, ".tar.gz"),
+            other => panic!("no suffix declared for {other:?}"),
+        }
+    }
+
+    /// An asset name carries the operating system as well as the architecture.
+    /// Naming only the architecture is how a Windows x86_64 build asked for
+    /// the Linux asset and got one.
+    #[test]
+    fn the_platform_substring_names_the_running_os() {
+        let target = arch_target().expect("this test builds on supported arches only");
+        let os = if cfg!(windows) { "windows" } else { "linux" };
+        assert!(
+            target.starts_with(os),
+            "{target} does not name {os}, so it matches another platform's asset"
+        );
     }
 }
