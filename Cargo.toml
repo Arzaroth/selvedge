@@ -1,0 +1,16 @@
+[package]
+name = "selvedge"
+version = "0.1.0"
+edition = "2024"
+# let-chains, used throughout, are stable from 1.88.
+rust-version = "1.88"
+description = "Keeps a binary and the desktop frontends it feeds from coming apart"
+license = "MIT"
+repository = "https://github.com/Arzaroth/selvedge"
+
+[dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+self_update = { version = "0.44", default-features = false, features = ["reqwest", "rustls", "archive-tar", "compression-flate2", "archive-zip", "compression-zip-deflate"] }
+http = "1"
