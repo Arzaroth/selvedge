@@ -10,6 +10,8 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-16
+
 ### Fixed
 
 - **An update could install binaries for another platform.** `asset_for` looks
@@ -75,7 +77,8 @@ anything breaking is two repositories.
 
 - The updater and the desktop payload installer, extracted from TailGauge.
 
-[Unreleased]: https://github.com/Arzaroth/selvedge/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Arzaroth/selvedge/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/Arzaroth/selvedge/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Arzaroth/selvedge/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/Arzaroth/selvedge/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/Arzaroth/selvedge/compare/v0.2.0...v0.2.1
