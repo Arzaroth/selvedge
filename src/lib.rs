@@ -24,9 +24,14 @@ pub use state::UpdateStatus;
 /// install against it.
 #[derive(Debug, Clone, Copy)]
 pub struct Project {
-    /// The installed executable's name, which also names its release assets:
-    /// `<binary>-<tag>-<target>.tar.gz`.
-    pub binary: &'static str,
+    /// Every executable the release archive carries, the primary one first.
+    /// That one also names the assets: `<primary>-<tag>-<target>.tar.gz`.
+    ///
+    /// A project shipping more than one names them all, because an update that
+    /// replaced some of them would leave an install describing a version half
+    /// of it is not. Declare the Windows spellings with the caller's own
+    /// `cfg`: which names carry `.exe` is not something this crate can know.
+    pub binaries: &'static [&'static str],
     /// `owner/repo` releases are pulled from.
     pub repo: &'static str,
     /// Environment variable that overrides `repo`, so a fork can update from
@@ -42,10 +47,29 @@ pub struct Project {
     pub aliases: &'static [&'static str],
     /// Executables an older layout installed that nothing writes now. An
     /// update removes them rather than leaving a stale copy to answer.
+    ///
+    /// The opposite of an alias: an alias is an old name the binary still
+    /// answers to, and gets a symlink.
     pub legacy: &'static [&'static str],
+    /// Windows: the registry key an MSI writes its ProductCode under, if this
+    /// project ships one. `None` means every update replaces in place.
+    ///
+    /// Where MSI owns what is on disk, replacing the files underneath it
+    /// leaves Windows describing a version that is no longer installed, and a
+    /// later package comparing against it. So an install that came from the
+    /// MSI is upgraded by the MSI.
+    pub msi_marker_key: Option<&'static str>,
 }
 
 impl Project {
+    /// The executable the others are named after and the aliases point at.
+    /// Without it in an archive there is nothing to update to.
+    pub fn primary(&self) -> &'static str {
+        self.binaries
+            .first()
+            .expect("a project ships at least one binary")
+    }
+
     /// The repository to pull releases from, after the environment has had its
     /// say.
     pub fn repo(&self) -> String {
@@ -89,13 +113,14 @@ fn is_executable(path: &std::path::Path) -> bool {
 /// standing up a real one. Its shape is the shape both real callers have.
 #[cfg(test)]
 pub(crate) const SAMPLE: Project = Project {
-    binary: "samplegauge",
+    binaries: &["samplegauge", "samplegauge-tui"],
     repo: "Arzaroth/SampleGauge",
     repo_env: "SAMPLEGAUGE_REPO",
     version: "1.2.3",
     frontends: SAMPLE_FRONTENDS,
     aliases: &["samplegauge-ctl", "samplegauge-watch"],
     legacy: &["samplegauge-update"],
+    msi_marker_key: Some(r"HKCU\Software\SampleGauge"),
 };
 
 #[cfg(test)]

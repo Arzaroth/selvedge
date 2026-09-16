@@ -32,10 +32,10 @@ pub struct UpdateStatus {
 
 pub fn cache_dir(project: &Project) -> PathBuf {
     match std::env::var_os("XDG_CACHE_HOME").filter(|v| !v.is_empty()) {
-        Some(v) => PathBuf::from(v).join(project.binary),
+        Some(v) => PathBuf::from(v).join(project.primary()),
         None => PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
             .join(".cache")
-            .join(project.binary),
+            .join(project.primary()),
     }
 }
 

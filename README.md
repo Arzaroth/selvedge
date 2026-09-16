@@ -19,13 +19,19 @@ Everything the machinery cannot know, in one value:
 
 ```rust
 const TAILGAUGE: selvedge::Project = selvedge::Project {
-    binary: "tailgauge",
+    // Primary first: it names the release assets and every alias points at it.
+    binaries: &["tailgauge"],
     repo: "Arzaroth/TailGauge",
     repo_env: "TAILGAUGE_REPO",
     version: env!("CARGO_PKG_VERSION"),
     frontends: FRONTENDS,
+    // Old names the binary still answers to, kept as symlinks.
     aliases: ALIASES,
-    legacy: &[],
+    // Old names it does not, removed rather than left to answer.
+    legacy: &["tailgauge-update"],
+    // Windows only: where an MSI records its ProductCode. None means every
+    // update replaces in place.
+    msi_marker_key: None,
 };
 ```
 
@@ -49,8 +55,28 @@ the next update proceeds. A lock file that means "locked" while it merely
 exists survives the crash and blocks every later update until somebody deletes
 it by hand.
 
+## Windows
+
+A project installed by an MSI is upgraded by the MSI, because replacing the
+files underneath it would leave Windows describing a version that is no longer
+installed. `apply` returns with `installer_launched` set and nothing replaced,
+and the caller must exit promptly: one of the files `msiexec` is about to
+replace is the executable running the code.
+
+That path compiles nowhere but Windows, so CI builds and tests there too. The
+registry parsing it depends on is deliberately not behind `cfg`, because that is
+where the mistakes are and a test that only runs on a release runner is a test
+nobody sees fail.
+
 ## Tests
 
 The suite drives the whole thing against `SAMPLE`, a project that does not
 exist, which is what keeps this crate honest about being machinery rather than
 one of its callers wearing a different name.
+
+`tests/callers.rs` is the other half: both real projects, declared the way they
+declare themselves, and the call sites they use today. The crate came out of
+one of them and fits that one by construction. TokenGauge ships two binaries
+where TailGauge ships one, keeps an old name working where TailGauge takes one
+away, and is MSI-installed on Windows where TailGauge has no Windows at all - so
+if the surface moves under either of them, that file stops compiling.

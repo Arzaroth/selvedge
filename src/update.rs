@@ -143,7 +143,7 @@ impl UpdateLock {
     fn acquire(project: &Project, install_dir: &Path) -> Result<Self> {
         // Per project: two of these can share an install directory, and one
         // updating must not refuse the other.
-        let path = install_dir.join(format!(".{}-update.lock", project.binary));
+        let path = install_dir.join(format!(".{}-update.lock", project.primary()));
         let file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -182,21 +182,39 @@ pub struct FrontendOutcome {
 pub struct Applied {
     pub version: String,
     pub frontends: Vec<FrontendOutcome>,
+    /// Windows, MSI installs only: the upgrade was handed to `msiexec` and is
+    /// running now. Nothing has been replaced yet, and the caller must exit
+    /// promptly, because one of the files the installer is about to replace is
+    /// the executable running this code.
+    pub installer_launched: bool,
 }
 
 /// Download the platform archive and replace the installed binary. Returns the
 /// version installed - unchanged when already current, so a same-version run
 /// never clobbers.
 pub fn apply(project: &Project, cache_file: &Path) -> Result<Applied> {
-    let target = arch_target()?;
     let release = latest_release(project)?;
     let current = project.version;
     if !version_gt(&release.version, current) {
         return Ok(Applied {
+            installer_launched: false,
             version: current.to_string(),
             frontends: Vec::new(),
         });
     }
+
+    // Where an MSI owns what is on disk, it is the thing that upgrades it.
+    // Replacing the files underneath would leave Windows describing a version
+    // that is no longer installed, and a later package comparing against it.
+    #[cfg(windows)]
+    if project
+        .msi_marker_key
+        .is_some_and(|key| msi_product_code(key).is_some())
+    {
+        return msi_upgrade(&release);
+    }
+
+    let target = arch_target()?;
 
     let asset = release
         .asset_for(target, Some(ARCHIVE_SUFFIX))
@@ -210,7 +228,7 @@ pub fn apply(project: &Project, cache_file: &Path) -> Result<Applied> {
 
     // Staged inside the install directory so the final move is a rename on the
     // same filesystem.
-    let tmp = install_dir.join(format!(".{}-update.tmp", project.binary));
+    let tmp = install_dir.join(format!(".{}-update.tmp", project.primary()));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp)
         .with_context(|| format!("cannot create staging dir {}", tmp.display()))?;
@@ -226,25 +244,38 @@ pub fn apply(project: &Project, cache_file: &Path) -> Result<Applied> {
         // what it is moving, so a directory of that name in the archive would
         // land on the installed binary's path and become what every alias
         // points at.
-        let staged_binary = tmp.join(project.binary);
-        if !staged_binary.is_file() {
+        // `is_file`, not `exists`: the move renames without looking at what it
+        // is moving, so a directory of that name in the archive would pass,
+        // land on the installed binary's path, and become what the aliases
+        // point at.
+        let staged_primary = tmp.join(project.primary());
+        if !staged_primary.is_file() {
             bail!(
                 "release archive has no {} - refusing a partial update",
-                project.binary
+                project.primary()
             );
         }
 
-        let dest = install_dir.join(project.binary);
-        // Move-with-temp so the running binary is replaced safely: the old
-        // inode stays live for this process.
-        self_update::Move::from_source(&staged_binary)
-            .replace_using_temp(&tmp.join("tailgauge.old"))
-            .to_dest(&dest)
-            .with_context(|| format!("failed to replace {}", dest.display()))?;
-        if let Ok(meta) = std::fs::metadata(&dest) {
-            let mut perms = meta.permissions();
-            perms.set_mode(0o755);
-            let _ = std::fs::set_permissions(&dest, perms);
+        for binary in project.binaries {
+            let src = tmp.join(binary);
+            // An archive from before a binary existed carries none of it.
+            if !src.is_file() {
+                continue;
+            }
+            let dest = install_dir.join(binary);
+            // Move-with-temp so a running binary is replaced safely: on unix
+            // the old inode stays live for this process, and on Windows the
+            // locked file is renamed aside rather than deleted in place.
+            self_update::Move::from_source(&src)
+                .replace_using_temp(&tmp.join(format!("{binary}.old")))
+                .to_dest(&dest)
+                .with_context(|| format!("failed to replace {}", dest.display()))?;
+            #[cfg(unix)]
+            if let Ok(meta) = std::fs::metadata(&dest) {
+                let mut perms = meta.permissions();
+                perms.set_mode(0o755);
+                let _ = std::fs::set_permissions(&dest, perms);
+            }
         }
 
         refresh_aliases(project, &install_dir);
@@ -272,6 +303,7 @@ pub fn apply(project: &Project, cache_file: &Path) -> Result<Applied> {
     let _ = state::write_update_status(cache_file, &status);
 
     Ok(Applied {
+        installer_launched: false,
         version: release.version,
         frontends,
     })
@@ -296,7 +328,7 @@ pub fn install_frontends(
     // three frontends must not fetch the archive three times.
     let _lock = UpdateLock::acquire(project, &install_dir)?;
 
-    let tmp = install_dir.join(format!(".{}-frontend.tmp", project.binary));
+    let tmp = install_dir.join(format!(".{}-frontend.tmp", project.primary()));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp)
         .with_context(|| format!("cannot create staging dir {}", tmp.display()))?;
@@ -382,18 +414,18 @@ fn install_frontends_from(
 /// would let a stale copy answer for `tailgauge-ctl` forever.
 pub fn refresh_aliases(project: &Project, install_dir: &Path) {
     // Never trade a working helper for a link to nothing.
-    if !install_dir.join(project.binary).is_file() {
+    if !install_dir.join(project.primary()).is_file() {
         return;
     }
     for alias in project.aliases {
         let path = install_dir.join(alias);
         if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink())
-            && std::fs::read_link(&path).is_ok_and(|t| t == Path::new(project.binary))
+            && std::fs::read_link(&path).is_ok_and(|t| t == Path::new(project.primary()))
         {
             continue;
         }
         let _ = std::fs::remove_file(&path);
-        let _ = std::os::unix::fs::symlink(project.binary, &path);
+        let _ = std::os::unix::fs::symlink(project.primary(), &path);
     }
     // Names an older layout installed that this one does not write. Left in
     // place they answer for themselves forever: whatever a key binding or a
@@ -402,6 +434,134 @@ pub fn refresh_aliases(project: &Project, install_dir: &Path) {
     for stale in project.legacy {
         let _ = std::fs::remove_file(install_dir.join(stale));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Windows: an install the MSI owns is upgraded by the MSI
+// ---------------------------------------------------------------------------
+
+/// The ProductCode of the MSI that installed this copy, if one did.
+///
+/// MSI names the Add/Remove Programs entry by a code that changes with every
+/// release, so the installer records the current one at a path that does not.
+/// Its presence is also the only reliable answer to "was this installed by the
+/// MSI", which decides how an upgrade is applied.
+#[cfg(windows)]
+fn msi_product_code(marker_key: &str) -> Option<String> {
+    read_registry_value(marker_key, "ProductCode").filter(|code| is_product_code(code))
+}
+
+/// Hand the upgrade to `msiexec`, so Windows keeps describing what is on disk.
+///
+/// This returns while the installer is still running, and it has to: the
+/// package replaces the executable this process is running from. MSI cannot
+/// replace a locked file without scheduling a reboot, so the caller exits and
+/// the installer proceeds into a directory nobody holds open.
+#[cfg(windows)]
+fn msi_upgrade(release: &self_update::update::Release) -> Result<Applied> {
+    let asset = release
+        .assets
+        .iter()
+        .find(|a| a.name.ends_with(".msi"))
+        .ok_or_else(|| {
+            anyhow!(
+                "release {} has no .msi asset; download it from the releases page",
+                release.version
+            )
+        })?;
+
+    // Not the install directory: this process exits before the installer is
+    // finished, so nothing here can clean up after it, and debris in the
+    // install directory is what a self-updating MSI install must not leave.
+    let tmp = std::env::temp_dir().join("selvedge-update");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp)
+        .with_context(|| format!("cannot create staging dir {}", tmp.display()))?;
+    let package = tmp.join(&asset.name);
+
+    let f = std::fs::File::create(&package)
+        .with_context(|| format!("cannot create {}", package.display()))?;
+    self_update::Download::from_url(&asset.download_url)
+        .set_header(
+            http::header::ACCEPT,
+            http::HeaderValue::from_static("application/octet-stream"),
+        )
+        .show_progress(true)
+        .download_to(f)
+        .context("download failed")?;
+
+    // `/qb` rather than `/qn`: a per-user install needs no elevation, but it
+    // does need somewhere to say so when a file is in use, and a silent
+    // install that hit that would schedule a reboot without telling anyone.
+    std::process::Command::new("msiexec")
+        .args(["/i", &package.to_string_lossy(), "/qb"])
+        .spawn()
+        .context("failed to launch msiexec")?;
+
+    // Deliberately not touching the cached update status: msiexec runs
+    // asynchronously and may fail or be cancelled, so recording "now on the
+    // new version, no update available" would hide a still-pending upgrade
+    // until something else re-checked. The next check settles it honestly.
+    Ok(Applied {
+        version: release.version.clone(),
+        frontends: Vec::new(),
+        installer_launched: true,
+    })
+}
+
+#[cfg(windows)]
+fn read_registry_value(key: &str, name: &str) -> Option<String> {
+    let out = no_window(std::process::Command::new("reg"))
+        .args(["query", key, "/v", name])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_reg_value(&String::from_utf8_lossy(&out.stdout), name)
+}
+
+/// `reg.exe` from a GUI process would flash a console window.
+#[cfg(windows)]
+fn no_window(mut cmd: std::process::Command) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+/// Pull one value out of `reg query` output, whose shape is
+/// `    <name>    REG_SZ    <value>` under a key heading.
+///
+/// Not `#[cfg(windows)]`: the parsing is where the mistakes live, and a test
+/// that only runs on the release runner is a test nobody sees fail.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn parse_reg_value(output: &str, name: &str) -> Option<String> {
+    output
+        .lines()
+        .find_map(|line| {
+            // The name must end at whitespace, or `ProductCodeOther` answers
+            // for `ProductCode`.
+            let rest = line.trim_start().strip_prefix(name)?;
+            let rest = rest.strip_prefix(char::is_whitespace)?.trim_start();
+            let (kind, value) = rest.split_once(char::is_whitespace)?;
+            kind.starts_with("REG_").then(|| value.trim().to_string())
+        })
+        .filter(|value| !value.is_empty())
+}
+
+/// A registry-shaped GUID, `{8-4-4-4-12}`. The value is user-writable, and it
+/// is about to name a registry key.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn is_product_code(value: &str) -> bool {
+    let Some(inner) = value
+        .strip_prefix('{')
+        .and_then(|rest| rest.strip_suffix('}'))
+    else {
+        return false;
+    };
+    inner.split('-').map(str::len).eq([8usize, 4, 4, 4, 12])
+        && inner.chars().all(|c| c == '-' || c.is_ascii_hexdigit())
 }
 
 #[cfg(test)]
@@ -434,14 +594,14 @@ mod tests {
     #[test]
     fn every_old_helper_name_becomes_a_link_to_the_binary() {
         let dir = scratch("aliases");
-        std::fs::write(dir.join(SAMPLE.binary), b"binary").unwrap();
+        std::fs::write(dir.join(SAMPLE.primary()), b"binary").unwrap();
         refresh_aliases(PROJECT, &dir);
 
         for alias in SAMPLE.aliases {
             let path = dir.join(alias);
             assert_eq!(
                 std::fs::read_link(&path).unwrap(),
-                Path::new(SAMPLE.binary),
+                Path::new(SAMPLE.primary()),
                 "{alias}"
             );
             assert_eq!(std::fs::read(&path).unwrap(), b"binary", "{alias} resolves");
@@ -454,7 +614,7 @@ mod tests {
         // What 0.4.0 leaves behind: real bash scripts. Left in place they would
         // answer for their names forever.
         let dir = scratch("stale");
-        std::fs::write(dir.join(SAMPLE.binary), b"new").unwrap();
+        std::fs::write(dir.join(SAMPLE.primary()), b"new").unwrap();
         std::fs::write(dir.join(SAMPLE.aliases[0]), b"#!/bin/bash\n").unwrap();
         refresh_aliases(PROJECT, &dir);
 
@@ -491,12 +651,12 @@ mod tests {
     #[test]
     fn refreshing_an_existing_set_of_aliases_is_a_no_op() {
         let dir = scratch("idempotent");
-        std::fs::write(dir.join(SAMPLE.binary), b"binary").unwrap();
+        std::fs::write(dir.join(SAMPLE.primary()), b"binary").unwrap();
         refresh_aliases(PROJECT, &dir);
         refresh_aliases(PROJECT, &dir);
         assert_eq!(
             std::fs::read_link(dir.join(SAMPLE.aliases[0])).unwrap(),
-            Path::new(SAMPLE.binary)
+            Path::new(SAMPLE.primary())
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -504,7 +664,7 @@ mod tests {
     #[test]
     fn a_name_the_new_layout_does_not_write_is_taken_away() {
         let dir = scratch("legacy");
-        std::fs::write(dir.join(SAMPLE.binary), b"binary").unwrap();
+        std::fs::write(dir.join(SAMPLE.primary()), b"binary").unwrap();
         let stale = dir.join(SAMPLE.legacy[0]);
         std::fs::write(&stale, b"#!/bin/bash\n").unwrap();
 
@@ -516,7 +676,7 @@ mod tests {
         // And the aliases it does write are still there.
         assert_eq!(
             std::fs::read_link(dir.join(SAMPLE.aliases[0])).unwrap(),
-            Path::new(SAMPLE.binary)
+            Path::new(SAMPLE.primary())
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -531,6 +691,51 @@ mod tests {
 
         refresh_aliases(PROJECT, &dir);
         assert!(stale.exists(), "it was the only thing left that ran");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_value_is_read_from_the_registry_line_that_names_it() {
+        let out = "\r\nHKEY_CURRENT_USER\\Software\\SampleGauge\r\n    \
+                   ProductCode    REG_SZ    {D2B4E6A1-1111-4C3E-9F0A-ABCDEF012345}\r\n";
+        assert_eq!(
+            parse_reg_value(out, "ProductCode").as_deref(),
+            Some("{D2B4E6A1-1111-4C3E-9F0A-ABCDEF012345}")
+        );
+        // A longer name starting with the one asked for must not answer.
+        let other = "    ProductCodeOther    REG_SZ    {D2B4E6A1-1111-4C3E-9F0A-ABCDEF012345}\r\n";
+        assert_eq!(parse_reg_value(other, "ProductCode"), None);
+        assert_eq!(parse_reg_value("", "ProductCode"), None);
+        assert_eq!(
+            parse_reg_value("    ProductCode    REG_SZ    \r\n", "ProductCode"),
+            None
+        );
+    }
+
+    #[test]
+    fn only_a_registry_shaped_guid_is_taken_for_one() {
+        // It is user-writable, and it is about to name a registry key.
+        assert!(is_product_code("{D2B4E6A1-1111-4C3E-9F0A-ABCDEF012345}"));
+        assert!(!is_product_code("D2B4E6A1-1111-4C3E-9F0A-ABCDEF012345"));
+        assert!(!is_product_code("{D2B4E6A1-1111-4C3E-9F0A-ABCDEF01234}"));
+        assert!(!is_product_code("{D2B4E6A1-1111-4C3E-9F0A-ABCDEFZZ2345}"));
+        assert!(!is_product_code("{}"));
+        assert!(!is_product_code(
+            r"{../../etc/passwd-1111-4C3E-9F0A-ABCDEF012345}"
+        ));
+    }
+
+    #[test]
+    fn the_primary_binary_is_the_one_the_rest_are_named_after() {
+        assert_eq!(SAMPLE.primary(), "samplegauge");
+        // And the aliases point at it, not at a later one.
+        let dir = scratch("primary");
+        std::fs::write(dir.join(SAMPLE.primary()), b"binary").unwrap();
+        refresh_aliases(PROJECT, &dir);
+        assert_eq!(
+            std::fs::read_link(dir.join(SAMPLE.aliases[0])).unwrap(),
+            Path::new("samplegauge")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -554,7 +759,7 @@ mod tests {
         // mid-download leaves the file behind, and when existence was the lock
         // every later update was refused until somebody deleted it by hand.
         let dir = scratch("stale-lock");
-        let path = dir.join(format!(".{}-update.lock", PROJECT.binary));
+        let path = dir.join(format!(".{}-update.lock", PROJECT.primary()));
         std::fs::write(&path, b"").unwrap();
 
         UpdateLock::acquire(PROJECT, &dir).expect("a file nobody holds is not a lock");
@@ -567,7 +772,7 @@ mod tests {
         // the other.
         let dir = scratch("two-projects");
         let other = Project {
-            binary: "othergauge",
+            binaries: &["othergauge"],
             ..SAMPLE
         };
         let _held = UpdateLock::acquire(PROJECT, &dir).expect("first");
