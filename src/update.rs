@@ -682,8 +682,14 @@ mod tests {
 
     const PROJECT: &Project = &SAMPLE;
 
+    /// A directory of this test's own. The counter is not decoration: two
+    /// tests that happened to pick the same name shared a directory and raced,
+    /// which reads as one of them being flaky rather than as a collision.
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("tg-update-{name}-{}", std::process::id()));
+        static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("sv-update-{name}-{}-{seq}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
