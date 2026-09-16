@@ -2,8 +2,8 @@
 name = "selvedge"
 version = "0.1.0"
 edition = "2024"
-# let-chains, used throughout, are stable from 1.88.
-rust-version = "1.88"
+# File::try_lock, which the update lock is built on, is stable from 1.89.
+rust-version = "1.89"
 description = "Keeps a binary and the desktop frontends it feeds from coming apart"
 license = "MIT"
 repository = "https://github.com/Arzaroth/selvedge"

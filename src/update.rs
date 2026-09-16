@@ -124,29 +124,35 @@ fn release_named(project: &Project, version: &str) -> Result<self_update::update
 
 /// Exclusive lock, so an update fired from the panel and one fired from a
 /// terminal cannot race on the shared staging directory.
-struct UpdateLock(PathBuf);
+///
+/// The lock is the kernel's, held on an open descriptor, and not the mere
+/// existence of a file. A lock that means "locked" while the file exists
+/// outlives the process that took it: kill an update mid-download and every
+/// later one is refused until somebody deletes the file by hand. Closing the
+/// descriptor releases this one, and a process that dies closes its
+/// descriptors.
+struct UpdateLock(#[allow(dead_code)] std::fs::File);
 
 impl UpdateLock {
     fn acquire(project: &Project, install_dir: &Path) -> Result<Self> {
+        // Per project: two of these can share an install directory, and one
+        // updating must not refuse the other.
         let path = install_dir.join(format!(".{}-update.lock", project.binary));
-        match std::fs::OpenOptions::new()
+        let file = std::fs::OpenOptions::new()
             .write(true)
-            .create_new(true)
+            .create(true)
+            .truncate(false)
             .open(&path)
-        {
-            Ok(_) => Ok(UpdateLock(path)),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => bail!(
-                "update already in progress ({} exists; remove it if stale)",
-                path.display()
-            ),
-            Err(e) => Err(e).context("failed to acquire update lock"),
+            .with_context(|| format!("cannot open the update lock {}", path.display()))?;
+        match file.try_lock() {
+            Ok(()) => Ok(UpdateLock(file)),
+            Err(std::fs::TryLockError::WouldBlock) => {
+                bail!("an update is already running")
+            }
+            Err(std::fs::TryLockError::Error(e)) => {
+                Err(e).context("failed to acquire the update lock")
+            }
         }
-    }
-}
-
-impl Drop for UpdateLock {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
     }
 }
 
@@ -496,7 +502,32 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn a_lock_file_left_by_a_dead_process_does_not_block_the_next_update() {
+        // The whole reason the lock is the kernel's. An update killed
+        // mid-download leaves the file behind, and when existence was the lock
+        // every later update was refused until somebody deleted it by hand.
+        let dir = scratch("stale-lock");
+        let path = dir.join(format!(".{}-update.lock", PROJECT.binary));
+        std::fs::write(&path, b"").unwrap();
 
+        UpdateLock::acquire(PROJECT, &dir).expect("a file nobody holds is not a lock");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn two_projects_sharing_an_install_directory_lock_separately() {
+        // ~/.local/bin holds both of them, and one updating must not refuse
+        // the other.
+        let dir = scratch("two-projects");
+        let other = Project {
+            binary: "othergauge",
+            ..SAMPLE
+        };
+        let _held = UpdateLock::acquire(PROJECT, &dir).expect("first");
+        UpdateLock::acquire(&other, &dir).expect("a different project is not this one");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn a_fresh_cache_answers_without_reaching_github() {
