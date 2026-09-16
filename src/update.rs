@@ -43,18 +43,60 @@ pub const ARCHIVE_SUFFIX: &str = ".tar.gz";
 /// Query GitHub, recompute availability, and persist the cached status. The
 /// `notified` guard is preserved across calls.
 pub fn check(project: &Project, cache_file: &Path) -> Result<UpdateStatus> {
-    let current = project.version.to_string();
+    // The network call takes seconds, and an update can finish inside them.
+    // So nothing is decided before it: what this knows when it returns is the
+    // tag, and the rest is settled against whatever the file says by then.
+    let latest = latest_release(project)?.version;
+    record_check(cache_file, &latest, project.version)
+}
+
+/// Fold a check's result into the cache without clobbering an update that
+/// landed while the check was talking to GitHub.
+///
+/// Both write this file and only one of them holds the install lock, so the
+/// read and the write are one step here. Without that, a check that started
+/// before an update could finish after it and put back the version that was
+/// running when it started - leaving a panel offering an update to the version
+/// it is already on.
+fn record_check(cache_file: &Path, latest: &str, running: &str) -> Result<UpdateStatus> {
+    let _guard = CacheGuard::acquire(cache_file);
     let mut status = state::read_update_status(cache_file).unwrap_or_default();
-    status.current = current.clone();
+    // An `apply` that finished meanwhile wrote the version it installed, and
+    // it knows better: this process is the one that was running before it.
+    if !version_gt(&status.current, running) {
+        status.current = running.to_string();
+    }
+    status.available = version_gt(latest, &status.current);
+    status.latest = Some(latest.to_string());
     status.checked_ms = state::now_ms();
-
-    let release = latest_release(project)?;
-    let latest = release.version.clone();
-    status.available = version_gt(&latest, &current);
-    status.latest = Some(latest);
-
     state::write_update_status(cache_file, &status)?;
     Ok(status)
+}
+
+/// Held across a read-modify-write of the cache, and nothing else. Short
+/// enough that blocking is right: the alternative is a check and an update
+/// interleaving on a file both of them own.
+struct CacheGuard(#[allow(dead_code)] Option<std::fs::File>);
+
+impl CacheGuard {
+    fn acquire(cache_file: &Path) -> Self {
+        let path = cache_file.with_extension("lock");
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .ok();
+        // Best effort: a cache that cannot be guarded is still a cache worth
+        // writing, and the failure it guards against is a stale banner.
+        if let Some(f) = &file {
+            let _ = f.lock();
+        }
+        CacheGuard(file)
+    }
 }
 
 /// The cached answer while it is fresh, and a live [`check`] otherwise. A panel
@@ -327,6 +369,7 @@ pub fn apply(project: &Project, cache_file: &Path) -> Result<Applied> {
     let frontends = result?;
 
     // Refresh the cached status so the panel drops the update banner.
+    let _guard = CacheGuard::acquire(cache_file);
     let mut status = state::read_update_status(cache_file).unwrap_or_default();
     status.current = release.version.clone();
     status.latest = Some(release.version.clone());
@@ -782,6 +825,51 @@ mod tests {
             std::fs::read_link(dir.join(SAMPLE.aliases[0])).unwrap(),
             Path::new("samplegauge")
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_check_that_finishes_after_an_update_does_not_undo_it() {
+        // The network call takes seconds and an update can finish inside them.
+        // The check was started by the old binary, so its idea of "current" is
+        // the version that has just been replaced.
+        let dir = scratch("check-after-apply");
+        let cache = dir.join("update.json");
+        state::write_update_status(
+            &cache,
+            &UpdateStatus {
+                current: "0.5.1".into(),
+                latest: Some("0.5.1".into()),
+                available: false,
+                checked_ms: 1,
+                notified: None,
+            },
+        )
+        .unwrap();
+
+        let settled = record_check(&cache, "0.5.1", "0.5.0").expect("record");
+        assert_eq!(settled.current, "0.5.1", "it put back the replaced version");
+        assert!(
+            !settled.available,
+            "the panel would offer an update to the version it is already on"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_check_on_a_cache_nobody_touched_reports_what_it_found() {
+        let dir = scratch("check-plain");
+        let cache = dir.join("update.json");
+
+        let found = record_check(&cache, "0.6.0", "0.5.0").expect("record");
+        assert_eq!(found.current, "0.5.0");
+        assert_eq!(found.latest.as_deref(), Some("0.6.0"));
+        assert!(found.available);
+        assert!(found.checked_ms > 0);
+
+        // And on a second pass, with nothing newer, it says so.
+        let same = record_check(&cache, "0.5.0", "0.5.0").expect("record");
+        assert!(!same.available);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
