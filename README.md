@@ -96,19 +96,15 @@ if the surface moves under either of them, that file stops compiling.
 
 selvedge is dual-licensed: use it under **either** the
 [MIT License](LICENSE-MIT) **or** the [WTFPL](LICENSE-WTFPL), whichever you
-prefer (`SPDX-License-Identifier: MIT OR WTFPL`), matching TokenGauge.
+prefer (`SPDX-License-Identifier: MIT OR WTFPL`), matching both callers.
 
-The code was extracted from [TailGauge](https://github.com/Arzaroth/TailGauge),
-which is GPL-3.0-or-later, and merged with the equivalent half of
-[TokenGauge](https://github.com/Arzaroth/TokenGauge). Seeing the same code
-under the GPL there and a permissive licence here looks wrong at a glance, so:
-every line that came here was written by one person, who holds the copyright in
-it and is licensing it here under MIT. Nothing was taken from a contributor
-whose terms this would have to respect.
-
-That is worth stating rather than leaving to be inferred, because a reader who
-finds near-identical code in TailGauge under the GPL would otherwise be right
-to wonder.
+The code was extracted from [TailGauge](https://github.com/Arzaroth/TailGauge)
+and merged with the equivalent half of
+[TokenGauge](https://github.com/Arzaroth/TokenGauge). Every line that came here
+was written by one person, who holds the copyright in it and licenses it here
+under these terms. Nothing was taken from a contributor whose terms this would
+have to respect, and what either caller is licensed under is a question for
+that repository rather than a claim worth mirroring here.
 
 No third-party code is vendored. Every dependency is permissive - MIT,
 Apache-2.0 or dual - and none is copyleft.
