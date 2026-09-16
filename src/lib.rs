@@ -91,6 +91,15 @@ impl Project {
     }
 }
 
+/// The environment is the process's, not a test's, so the tests that move it
+/// take turns. Without this they pass alone and fail together, which reads as
+/// flakiness rather than as two tests sharing one variable.
+#[cfg(test)]
+pub(crate) fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// A project that does not exist, so the machinery can be driven without
 /// standing up a real one. Its shape is the shape both real callers have.
 #[cfg(test)]
@@ -138,3 +147,40 @@ const SAMPLE_FRONTENDS: &[Frontend] = &[
         restart: Restart::Cheap("omarchy-shell -q shell rescanPlugins"),
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `repo_env` is what lets a fork update from its own releases, so its
+    /// value comes from outside and can be anything. A value with no slash in
+    /// it must not become a repository owner of `""`.
+    #[test]
+    fn a_malformed_repo_override_falls_back_to_the_one_built_in() {
+        let _env = env_lock();
+        // SAFETY: guarded above, and the variable is removed after.
+        unsafe { std::env::set_var(SAMPLE.repo_env, "not-a-repo") };
+        let (owner, name) = SAMPLE.owner_and_name();
+        unsafe { std::env::remove_var(SAMPLE.repo_env) };
+
+        assert_eq!(owner, "Arzaroth");
+        assert_eq!(name, "SampleGauge");
+    }
+
+    #[test]
+    fn a_well_formed_override_is_taken_whole() {
+        let _env = env_lock();
+        unsafe { std::env::set_var(SAMPLE.repo_env, "someone/Fork") };
+        let (owner, name) = SAMPLE.owner_and_name();
+        let repo = SAMPLE.repo();
+        unsafe { std::env::remove_var(SAMPLE.repo_env) };
+
+        assert_eq!((owner.as_str(), name.as_str()), ("someone", "Fork"));
+        assert_eq!(repo, "someone/Fork");
+    }
+
+    #[test]
+    fn the_primary_is_the_first_binary() {
+        assert_eq!(SAMPLE.primary(), "samplegauge");
+    }
+}

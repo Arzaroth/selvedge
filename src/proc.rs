@@ -101,11 +101,12 @@ mod tests {
         let name = "selvedge-not-a-program";
         std::fs::write(dir.join(name), "not a program").unwrap();
 
+        let _env = crate::env_lock();
         let path = std::env::var_os("PATH").unwrap_or_default();
         let joined =
             std::env::join_paths(std::iter::once(dir.clone()).chain(std::env::split_paths(&path)))
                 .unwrap();
-        // SAFETY: single-threaded test, and the value is restored below.
+        // SAFETY: guarded above, and the value is restored below.
         unsafe { std::env::set_var("PATH", &joined) };
         let found = which(name);
         unsafe { std::env::set_var("PATH", &path) };

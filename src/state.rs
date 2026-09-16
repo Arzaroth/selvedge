@@ -312,6 +312,75 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// `XDG_CACHE_HOME` is frequently unset, so the fallback is the usual
+    /// path rather than the exception.
+    #[test]
+    fn the_cache_directory_falls_back_to_the_home_one() {
+        let _env = crate::env_lock();
+        let before = std::env::var_os("XDG_CACHE_HOME");
+        // SAFETY: guarded above, and restored below.
+        unsafe { std::env::set_var("XDG_CACHE_HOME", "/xdg") };
+        let with = cache_dir(&crate::SAMPLE);
+        unsafe { std::env::remove_var("XDG_CACHE_HOME") };
+        let without = cache_dir(&crate::SAMPLE);
+        // An empty value is not a directory, and must read as unset.
+        unsafe { std::env::set_var("XDG_CACHE_HOME", "") };
+        let empty = cache_dir(&crate::SAMPLE);
+        match before {
+            Some(v) => unsafe { std::env::set_var("XDG_CACHE_HOME", v) },
+            None => unsafe { std::env::remove_var("XDG_CACHE_HOME") },
+        }
+
+        assert_eq!(with, std::path::Path::new("/xdg/samplegauge"));
+        assert!(
+            without.ends_with(".cache/samplegauge"),
+            "{}",
+            without.display()
+        );
+        assert_eq!(empty, without, "an empty value is not a directory");
+        assert_eq!(
+            update_cache_file(&crate::SAMPLE),
+            without.join("update.json")
+        );
+    }
+
+    /// A check that moved on to a newer version owns the guard now, and a
+    /// refused announcement for the older one must not clear it.
+    #[test]
+    fn a_refusal_does_not_clear_a_guard_that_moved_on() {
+        let dir = announce_dir("moved-on");
+        let path = dir.join("update.json");
+        write_update_status(
+            &path,
+            &UpdateStatus {
+                current: "1.0.0".into(),
+                latest: Some("1.1.0".into()),
+                available: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert!(
+            !announce_if_new(&path, |_, _| {
+                // A check lands mid-announcement and finds something newer.
+                let mut moved = read_update_status(&path).unwrap();
+                moved.latest = Some("1.2.0".into());
+                moved.notified = Some("1.2.0".into());
+                write_update_status(&path, &moved).unwrap();
+                false
+            })
+            .unwrap()
+        );
+
+        assert_eq!(
+            read_update_status(&path).unwrap().notified.as_deref(),
+            Some("1.2.0"),
+            "a refusal for 1.1.0 cleared the guard for 1.2.0"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_file_written_by_an_older_build_still_reads() {
         let dir = std::env::temp_dir().join(format!("tg-state-old-{}", std::process::id()));
