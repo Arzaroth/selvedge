@@ -937,6 +937,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// An alias is a symlink, so there are none where there are no symlinks:
+    /// a Windows project ships its extra names as real executables in the
+    /// archive and the replace loop writes them.
+    #[cfg(unix)]
     #[test]
     fn every_alias_points_at_the_binary_that_was_just_installed() {
         let dir = scratch("apply-aliases");
