@@ -347,12 +347,27 @@ mod tests {
         dir
     }
 
+    /// Every frontend here is an XDG desktop payload - a plasmoid, a shell
+    /// extension, a bar widget - so this is a claim about the platform they
+    /// are installed on. On Windows they resolve to nothing, which is right:
+    /// there is nowhere for a GNOME extension to go, and `installed()`
+    /// answering with an empty list is what the caller wants.
     #[test]
+    #[cfg(unix)]
     fn every_frontend_resolves_a_destination() {
         // A frontend whose id is not handled in dest_dir() would silently be
         // uninstallable, and an update would skip it without a word.
         for f in crate::SAMPLE.frontends {
             assert!(f.dest_dir().is_some(), "{} has no destination", f.id);
+        }
+    }
+
+    #[test]
+    #[cfg(not(unix))]
+    fn a_desktop_payload_has_nowhere_to_go_off_the_desktop() {
+        for f in crate::SAMPLE.frontends {
+            assert!(f.dest_dir().is_none(), "{} claims a destination", f.id);
+            assert!(!f.is_installed());
         }
     }
 
