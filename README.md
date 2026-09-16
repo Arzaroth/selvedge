@@ -91,3 +91,22 @@ one of them and fits that one by construction. TokenGauge ships two binaries
 where TailGauge ships one, keeps an old name working where TailGauge takes one
 away, and is MSI-installed on Windows where TailGauge has no Windows at all - so
 if the surface moves under either of them, that file stops compiling.
+
+## Provenance and licence
+
+selvedge is MIT (`LICENSE`).
+
+The code was extracted from [TailGauge](https://github.com/Arzaroth/TailGauge),
+which is GPL-3.0-or-later, and merged with the equivalent half of
+[TokenGauge](https://github.com/Arzaroth/TokenGauge), which is MIT OR WTFPL.
+Three licences for what is largely the same code looks wrong at a glance, so:
+every line that came here was written by one person, who holds the copyright in
+it and is licensing it here under MIT. Nothing was taken from a contributor
+whose terms this would have to respect.
+
+That is worth stating rather than leaving to be inferred, because a reader who
+finds near-identical code in TailGauge under the GPL would otherwise be right
+to wonder.
+
+No third-party code is vendored. Every dependency is permissive - MIT,
+Apache-2.0 or dual - and none is copyleft.
