@@ -94,12 +94,14 @@ if the surface moves under either of them, that file stops compiling.
 
 ## Provenance and licence
 
-selvedge is MIT (`LICENSE`).
+selvedge is dual-licensed: use it under **either** the
+[MIT License](LICENSE-MIT) **or** the [WTFPL](LICENSE-WTFPL), whichever you
+prefer (`SPDX-License-Identifier: MIT OR WTFPL`), matching TokenGauge.
 
 The code was extracted from [TailGauge](https://github.com/Arzaroth/TailGauge),
 which is GPL-3.0-or-later, and merged with the equivalent half of
-[TokenGauge](https://github.com/Arzaroth/TokenGauge), which is MIT OR WTFPL.
-Three licences for what is largely the same code looks wrong at a glance, so:
+[TokenGauge](https://github.com/Arzaroth/TokenGauge). Seeing the same code
+under the GPL there and a permissive licence here looks wrong at a glance, so:
 every line that came here was written by one person, who holds the copyright in
 it and is licensing it here under MIT. Nothing was taken from a contributor
 whose terms this would have to respect.

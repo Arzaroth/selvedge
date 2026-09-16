@@ -5,7 +5,7 @@ edition = "2024"
 # File::try_lock, which the update lock is built on, is stable from 1.89.
 rust-version = "1.89"
 description = "Keeps a binary and the desktop frontends it feeds from coming apart"
-license = "MIT"
+license = "MIT OR WTFPL"
 repository = "https://github.com/Arzaroth/selvedge"
 
 [dependencies]
