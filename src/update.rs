@@ -22,7 +22,11 @@ use crate::state::{self, UpdateStatus};
 pub const CACHE_TTL_MS: i64 = 6 * 60 * 60 * 1000;
 
 /// Distinguishes the binary archive from the other assets a release carries.
-const ARCHIVE_SUFFIX: &str = ".tar.gz";
+///
+/// Public because a consumer's own tests are what check that its release
+/// workflow publishes an asset this will go looking for. Getting that wrong
+/// produces a release nothing can update from, with green CI.
+pub const ARCHIVE_SUFFIX: &str = ".tar.gz";
 
 // ---------------------------------------------------------------------------
 // checking
@@ -63,8 +67,10 @@ pub fn check_cached(project: &Project, cache_file: &Path, force: bool) -> Result
 // ---------------------------------------------------------------------------
 
 /// Substring the release asset name must contain for the running platform.
+///
+/// Public for the same reason as [`ARCHIVE_SUFFIX`].
 /// Matches the release workflow's `<binary>-<tag>-<target>.tar.gz` naming.
-fn arch_target() -> Result<&'static str> {
+pub fn arch_target() -> Result<&'static str> {
     match std::env::consts::ARCH {
         "x86_64" => Ok("linux-x86_64"),
         "aarch64" | "arm64" => Ok("linux-aarch64"),
