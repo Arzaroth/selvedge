@@ -5,11 +5,14 @@ unravelling. This is the same idea for a desktop widget that ships as a binary
 plus the QML and JavaScript that binary feeds: it keeps them from coming apart.
 
 Two projects, [TailGauge](https://github.com/Arzaroth/TailGauge) and
-TokenGauge, draw a panel on Plasma, GNOME and Omarchy by shelling out to a
-binary. Neither panel has anything to do with the other. What they share is
-everything around the panel: fetching a release from GitHub, replacing the
-running binary, and reinstalling the desktop payloads from the same archive so
-the binary and its frontends can never be a release apart.
+[TokenGauge](https://github.com/Arzaroth/TokenGauge), draw a panel on Plasma,
+GNOME and Omarchy by shelling out to a binary. TokenGauge ships a few more of
+them - a TUI, a tray, a waybar module - which is why a project here names its
+binaries rather than its binary. Neither panel has anything to do with the
+other. What they share is everything around the panel: fetching a release from
+GitHub, replacing the running binary, and reinstalling the desktop payloads
+from the same archive so the binary and its frontends can never be a release
+apart.
 
 That was 1,400 lines in each of them.
 
