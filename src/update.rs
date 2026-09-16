@@ -143,6 +143,21 @@ pub fn version_gt(a: &str, b: &str) -> bool {
     parts(a) > parts(b)
 }
 
+/// The archive for this platform, and only this platform.
+///
+/// `Release::asset_for` is not it: after looking for the target it falls back
+/// to any asset whose name merely carries the suffix. So a release whose
+/// aarch64 build failed hands an aarch64 machine the x86_64 tarball, and the
+/// update succeeds and installs binaries that cannot run. A release that does
+/// not carry this platform is a release to refuse.
+fn archive_asset(release: &Release, target: &str) -> Option<ReleaseAsset> {
+    release
+        .assets
+        .iter()
+        .find(|a| a.name.contains(target) && a.name.ends_with(ARCHIVE_SUFFIX))
+        .cloned()
+}
+
 /// The newest release carrying an asset for the running platform.
 fn latest_release(project: &Project) -> Result<Release> {
     let (owner, name) = project.owner_and_name();
@@ -155,7 +170,7 @@ fn latest_release(project: &Project) -> Result<Release> {
         .context("could not reach GitHub to check for updates")?;
     releases
         .into_iter()
-        .find(|r| r.asset_for(target, Some(ARCHIVE_SUFFIX)).is_some())
+        .find(|r| archive_asset(r, target).is_some())
         .ok_or_else(|| anyhow!("no release with a {target} asset found"))
 }
 
@@ -315,8 +330,7 @@ pub(crate) fn apply_with(
 
     let target = arch_target()?;
 
-    let asset = release
-        .asset_for(target, Some(ARCHIVE_SUFFIX))
+    let asset = archive_asset(&release, target)
         .ok_or_else(|| anyhow!("release {} has no {target} asset", release.version))?;
 
     let install_dir = source.install_dir()?;
@@ -428,8 +442,7 @@ pub(crate) fn install_frontends_with(
     source: &dyn Source,
 ) -> Result<Vec<FrontendOutcome>> {
     let release = source.named(project, version)?;
-    let asset = release
-        .asset_for(arch_target()?, Some(ARCHIVE_SUFFIX))
+    let asset = archive_asset(&release, arch_target()?)
         .ok_or_else(|| anyhow!("release {} has no asset for this platform", release.version))?;
 
     let install_dir = source.install_dir()?;
