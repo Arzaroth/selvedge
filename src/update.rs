@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use self_update::backends::github::ReleaseList;
+use self_update::update::{Release, ReleaseAsset};
 
 use crate::Project;
 use crate::frontend::{self, Frontend};
@@ -143,7 +144,7 @@ pub fn version_gt(a: &str, b: &str) -> bool {
 }
 
 /// The newest release carrying an asset for the running platform.
-fn latest_release(project: &Project) -> Result<self_update::update::Release> {
+fn latest_release(project: &Project) -> Result<Release> {
     let (owner, name) = project.owner_and_name();
     let target = arch_target()?;
     let releases = ReleaseList::configure()
@@ -158,7 +159,7 @@ fn latest_release(project: &Project) -> Result<self_update::update::Release> {
         .ok_or_else(|| anyhow!("no release with a {target} asset found"))
 }
 
-fn release_named(project: &Project, version: &str) -> Result<self_update::update::Release> {
+fn release_named(project: &Project, version: &str) -> Result<Release> {
     let (owner, name) = project.owner_and_name();
     let releases = ReleaseList::configure()
         .repo_owner(&owner)
@@ -241,8 +242,57 @@ pub struct Applied {
 /// Download the platform archive and replace the installed binary. Returns the
 /// version installed - unchanged when already current, so a same-version run
 /// never clobbers.
+/// Where a release comes from, and where it lands.
+///
+/// The real one asks GitHub and installs beside the running binary. Everything
+/// between "there is a newer version" and "the binaries are replaced" is
+/// ordinary logic that a network and a second process were the only reason not
+/// to test, so it is reached through here instead. Same reason
+/// [`Frontend::install_into`] takes a destination.
+pub(crate) trait Source {
+    fn latest(&self, project: &Project) -> Result<Release>;
+    fn named(&self, project: &Project, version: &str) -> Result<Release>;
+    /// Put the asset's contents, extracted, into `tmp`.
+    fn fetch_into(&self, tmp: &Path, asset: &ReleaseAsset) -> Result<()>;
+    /// The directory the installed binaries live in.
+    fn install_dir(&self) -> Result<PathBuf>;
+    /// Which payloads this machine already has. An update refreshes those and
+    /// does not decide a machine should grow a GNOME extension.
+    fn installed_frontends(&self, project: &Project) -> Vec<&'static Frontend> {
+        frontend::installed(project)
+    }
+}
+
+pub(crate) struct Github;
+
+impl Source for Github {
+    fn latest(&self, project: &Project) -> Result<Release> {
+        latest_release(project)
+    }
+
+    fn named(&self, project: &Project, version: &str) -> Result<Release> {
+        release_named(project, version)
+    }
+
+    fn fetch_into(&self, tmp: &Path, asset: &ReleaseAsset) -> Result<()> {
+        fetch_into(tmp, &asset.name, &asset.download_url)
+    }
+
+    fn install_dir(&self) -> Result<PathBuf> {
+        install_dir()
+    }
+}
+
 pub fn apply(project: &Project, cache_file: &Path) -> Result<Applied> {
-    let release = latest_release(project)?;
+    apply_with(project, cache_file, &Github)
+}
+
+pub(crate) fn apply_with(
+    project: &Project,
+    cache_file: &Path,
+    source: &dyn Source,
+) -> Result<Applied> {
+    let release = source.latest(project)?;
     let current = project.version;
     if !version_gt(&release.version, current) {
         return Ok(Applied {
@@ -269,7 +319,7 @@ pub fn apply(project: &Project, cache_file: &Path) -> Result<Applied> {
         .asset_for(target, Some(ARCHIVE_SUFFIX))
         .ok_or_else(|| anyhow!("release {} has no {target} asset", release.version))?;
 
-    let install_dir = install_dir()?;
+    let install_dir = source.install_dir()?;
 
     // Held for the whole download/extract/replace, so a second invocation
     // fails fast instead of corrupting the staging directory.
@@ -284,10 +334,10 @@ pub fn apply(project: &Project, cache_file: &Path) -> Result<Applied> {
 
     // Only what is already installed: this refreshes an existing frontend, it
     // does not decide that a machine should grow a GNOME extension.
-    let present = frontend::installed(project);
+    let present = source.installed_frontends(project);
 
     let result = (|| -> Result<Vec<FrontendOutcome>> {
-        fetch_into(&tmp, &asset.name, &asset.download_url)?;
+        source.fetch_into(&tmp, &asset)?;
 
         // `is_file`, not `exists`: `Move::to_dest` renames without checking
         // what it is moving, so a directory of that name in the archive would
@@ -368,12 +418,21 @@ pub fn install_frontends(
     targets: &[&'static Frontend],
     version: &str,
 ) -> Result<Vec<FrontendOutcome>> {
-    let release = release_named(project, version)?;
+    install_frontends_with(project, targets, version, &Github)
+}
+
+pub(crate) fn install_frontends_with(
+    project: &Project,
+    targets: &[&'static Frontend],
+    version: &str,
+    source: &dyn Source,
+) -> Result<Vec<FrontendOutcome>> {
+    let release = source.named(project, version)?;
     let asset = release
         .asset_for(arch_target()?, Some(ARCHIVE_SUFFIX))
         .ok_or_else(|| anyhow!("release {} has no asset for this platform", release.version))?;
 
-    let install_dir = install_dir()?;
+    let install_dir = source.install_dir()?;
     // One lock, one download, one extraction for the whole set: installing
     // three frontends must not fetch the archive three times.
     let _lock = UpdateLock::acquire(project, &install_dir)?;
@@ -384,7 +443,7 @@ pub fn install_frontends(
         .with_context(|| format!("cannot create staging dir {}", tmp.display()))?;
 
     let result = (|| -> Result<Vec<FrontendOutcome>> {
-        fetch_into(&tmp, &asset.name, &asset.download_url)?;
+        source.fetch_into(&tmp, &asset)?;
         if !targets.iter().any(|t| t.payload_in(&tmp).is_some()) {
             bail!(
                 "release v{} ships no frontend payloads",
