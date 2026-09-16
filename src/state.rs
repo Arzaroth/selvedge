@@ -60,6 +60,93 @@ pub fn write_update_status(path: &Path, status: &UpdateStatus) -> Result<()> {
     std::fs::rename(&staged, path).with_context(|| format!("cannot replace {}", path.display()))
 }
 
+/// Held across a read-modify-write of the cache, and nothing else. Short
+/// enough that blocking is right: the alternative is two of this file's
+/// writers interleaving on it.
+///
+/// It lives here rather than beside the updater because the file is this
+/// module's, and announcing an update reads and writes it without ever
+/// fetching one.
+pub(crate) struct CacheGuard(#[allow(dead_code)] Option<std::fs::File>);
+
+impl CacheGuard {
+    pub(crate) fn acquire(cache_file: &Path) -> Self {
+        let path = cache_file.with_extension("lock");
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .ok();
+        // Best effort: a cache that cannot be guarded is still a cache worth
+        // writing, and the failure it guards against is a stale banner.
+        if let Some(f) = &file {
+            let _ = f.lock();
+        }
+        CacheGuard(file)
+    }
+}
+
+/// Announce a version that has not been announced yet, once.
+///
+/// `announce` is handed `(latest, current)` and is called only when the cache
+/// says there is something new to say. It returns whether the announcement
+/// actually happened; `false` puts the version back on offer so the next check
+/// tries again rather than marking it announced forever.
+///
+/// The guard, the read and the write-back are this crate's because the file is
+/// this crate's. A caller doing it for itself is a third writer of a file a
+/// check and an update already coordinate over, and the one that takes no
+/// lock: its write-back carries the `current` it was handed, so an update
+/// finishing in between is undone on paper and the panel goes on offering an
+/// update to the version already installed.
+pub fn announce_if_new(
+    cache_file: &Path,
+    announce: impl FnOnce(&str, &str) -> bool,
+) -> Result<bool> {
+    let Some((latest, current)) = claim_announcement(cache_file)? else {
+        return Ok(false);
+    };
+    // Deliberately outside the lock: a caller may draw something that waits on
+    // a person, and the file should not be held for that.
+    if announce(&latest, &current) {
+        return Ok(true);
+    }
+    release_announcement(cache_file, &latest)?;
+    Ok(false)
+}
+
+/// Take the announcement under the lock, so two processes checking at once
+/// cannot both decide it is theirs to make.
+fn claim_announcement(cache_file: &Path) -> Result<Option<(String, String)>> {
+    let _guard = CacheGuard::acquire(cache_file);
+    let mut status = read_update_status(cache_file).unwrap_or_default();
+    let Some(latest) = status.latest.clone().filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    if !status.available || status.notified.as_deref() == Some(latest.as_str()) {
+        return Ok(None);
+    }
+    let current = status.current.clone();
+    status.notified = Some(latest.clone());
+    write_update_status(cache_file, &status)?;
+    Ok(Some((latest, current)))
+}
+
+fn release_announcement(cache_file: &Path, latest: &str) -> Result<()> {
+    let _guard = CacheGuard::acquire(cache_file);
+    let mut status = read_update_status(cache_file).unwrap_or_default();
+    // Only if it is still ours: a check may have moved on to a newer version.
+    if status.notified.as_deref() == Some(latest) {
+        status.notified = None;
+        write_update_status(cache_file, &status)?;
+    }
+    Ok(())
+}
+
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -103,6 +190,125 @@ mod tests {
             .collect();
         assert!(strays.is_empty(), "left behind: {strays:?}");
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn announce_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("sv-ann-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_version_is_announced_once_and_the_guard_is_written_back() {
+        let dir = announce_dir("once");
+        let path = dir.join("update.json");
+        write_update_status(
+            &path,
+            &UpdateStatus {
+                current: "1.0.0".into(),
+                latest: Some("1.1.0".into()),
+                available: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let mut seen = Vec::new();
+        assert!(
+            announce_if_new(&path, |latest, current| {
+                seen.push(format!("{current}->{latest}"));
+                true
+            })
+            .unwrap()
+        );
+        assert_eq!(seen, ["1.0.0->1.1.0"]);
+        assert_eq!(
+            read_update_status(&path).unwrap().notified.as_deref(),
+            Some("1.1.0")
+        );
+
+        // Second time round there is nothing new to say.
+        assert!(!announce_if_new(&path, |_, _| panic!("announced twice")).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The whole reason this is not a caller's write-back: it must not carry a
+    /// `current` from before an update that landed meanwhile.
+    #[test]
+    fn announcing_leaves_every_other_field_as_it_found_them() {
+        let dir = announce_dir("fields");
+        let path = dir.join("update.json");
+        write_update_status(
+            &path,
+            &UpdateStatus {
+                current: "1.0.0".into(),
+                latest: Some("1.1.0".into()),
+                available: true,
+                checked_ms: 1_700_000_000_000,
+                notified: None,
+            },
+        )
+        .unwrap();
+
+        // An update finishes while the announcement is being drawn.
+        assert!(
+            announce_if_new(&path, |_, _| {
+                let mut after = read_update_status(&path).unwrap();
+                after.current = "1.1.0".into();
+                after.available = false;
+                write_update_status(&path, &after).unwrap();
+                true
+            })
+            .unwrap()
+        );
+
+        let end = read_update_status(&path).unwrap();
+        assert_eq!(end.current, "1.1.0", "the update was undone on paper");
+        assert!(!end.available, "the panel is still offering an update");
+        assert_eq!(end.checked_ms, 1_700_000_000_000);
+    }
+
+    /// An announcement that did not happen is not an announcement.
+    #[test]
+    fn a_refused_announcement_is_offered_again() {
+        let dir = announce_dir("refused");
+        let path = dir.join("update.json");
+        write_update_status(
+            &path,
+            &UpdateStatus {
+                current: "1.0.0".into(),
+                latest: Some("1.1.0".into()),
+                available: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert!(!announce_if_new(&path, |_, _| false).unwrap());
+        assert_eq!(read_update_status(&path).unwrap().notified, None);
+        assert!(announce_if_new(&path, |_, _| true).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn nothing_is_announced_when_there_is_no_update() {
+        let dir = announce_dir("none");
+        let path = dir.join("update.json");
+        assert!(!announce_if_new(&path, |_, _| panic!("no cache at all")).unwrap());
+
+        write_update_status(
+            &path,
+            &UpdateStatus {
+                current: "1.1.0".into(),
+                latest: Some("1.1.0".into()),
+                available: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!announce_if_new(&path, |_, _| panic!("already current")).unwrap());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -59,7 +59,7 @@ pub fn check(project: &Project, cache_file: &Path) -> Result<UpdateStatus> {
 /// running when it started - leaving a panel offering an update to the version
 /// it is already on.
 fn record_check(cache_file: &Path, latest: &str, running: &str) -> Result<UpdateStatus> {
-    let _guard = CacheGuard::acquire(cache_file);
+    let _guard = state::CacheGuard::acquire(cache_file);
     let mut status = state::read_update_status(cache_file).unwrap_or_default();
     // An `apply` that finished meanwhile wrote the version it installed, and
     // it knows better: this process is the one that was running before it.
@@ -71,32 +71,6 @@ fn record_check(cache_file: &Path, latest: &str, running: &str) -> Result<Update
     status.checked_ms = state::now_ms();
     state::write_update_status(cache_file, &status)?;
     Ok(status)
-}
-
-/// Held across a read-modify-write of the cache, and nothing else. Short
-/// enough that blocking is right: the alternative is a check and an update
-/// interleaving on a file both of them own.
-struct CacheGuard(#[allow(dead_code)] Option<std::fs::File>);
-
-impl CacheGuard {
-    fn acquire(cache_file: &Path) -> Self {
-        let path = cache_file.with_extension("lock");
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .ok();
-        // Best effort: a cache that cannot be guarded is still a cache worth
-        // writing, and the failure it guards against is a stale banner.
-        if let Some(f) = &file {
-            let _ = f.lock();
-        }
-        CacheGuard(file)
-    }
 }
 
 /// The cached answer while it is fresh, and a live [`check`] otherwise. A panel
@@ -369,7 +343,7 @@ pub fn apply(project: &Project, cache_file: &Path) -> Result<Applied> {
     let frontends = result?;
 
     // Refresh the cached status so the panel drops the update banner.
-    let _guard = CacheGuard::acquire(cache_file);
+    let _guard = state::CacheGuard::acquire(cache_file);
     let mut status = state::read_update_status(cache_file).unwrap_or_default();
     status.current = release.version.clone();
     status.latest = Some(release.version.clone());
