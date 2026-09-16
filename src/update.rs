@@ -244,6 +244,7 @@ pub struct FrontendOutcome {
 
 /// Result of a successful [`apply`]: the version installed, plus what happened
 /// to each non-binary frontend that was already present.
+#[derive(Debug)]
 pub struct Applied {
     pub version: String,
     pub frontends: Vec<FrontendOutcome>,
@@ -692,6 +693,303 @@ fn is_product_code(value: &str) -> bool {
 mod tests {
     use super::*;
     use crate::SAMPLE;
+
+    // -----------------------------------------------------------------------
+    // A release that never leaves the machine
+    // -----------------------------------------------------------------------
+
+    /// An archive that is already extracted. `fetch_into` writes files into a
+    /// staging directory; this writes the same files, so everything after it
+    /// is the real code path.
+    struct Fake {
+        version: String,
+        install_dir: PathBuf,
+        /// Relative paths to create under the staging directory.
+        ships: Vec<String>,
+        asset_target: String,
+    }
+
+    impl Fake {
+        fn new(dir: &Path, version: &str, ships: &[&str]) -> Self {
+            Fake {
+                version: version.to_string(),
+                install_dir: dir.to_path_buf(),
+                ships: ships.iter().map(|s| s.to_string()).collect(),
+                asset_target: arch_target().expect("a supported arch").to_string(),
+            }
+        }
+
+        fn release(&self) -> Release {
+            Release {
+                name: format!("v{}", self.version),
+                version: self.version.clone(),
+                date: "2026-01-01".into(),
+                body: None,
+                assets: vec![ReleaseAsset {
+                    name: format!(
+                        "samplegauge-v{}-{}{ARCHIVE_SUFFIX}",
+                        self.version, self.asset_target
+                    ),
+                    download_url: "https://example.invalid/asset".into(),
+                }],
+            }
+        }
+    }
+
+    impl Source for Fake {
+        fn latest(&self, _project: &Project) -> Result<Release> {
+            Ok(self.release())
+        }
+
+        fn named(&self, _project: &Project, _version: &str) -> Result<Release> {
+            Ok(self.release())
+        }
+
+        fn fetch_into(&self, tmp: &Path, _asset: &ReleaseAsset) -> Result<()> {
+            for rel in &self.ships {
+                let path = tmp.join(rel);
+                if rel.ends_with('/') {
+                    std::fs::create_dir_all(&path)?;
+                    continue;
+                }
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&path, format!("{} {}", rel, self.version))?;
+            }
+            Ok(())
+        }
+
+        fn install_dir(&self) -> Result<PathBuf> {
+            Ok(self.install_dir.clone())
+        }
+
+        fn installed_frontends(&self, _project: &Project) -> Vec<&'static Frontend> {
+            // The machine under test has none. Frontend installation has its
+            // own tests, with a destination it is handed.
+            Vec::new()
+        }
+    }
+
+    fn installed(dir: &Path, name: &str) -> Option<String> {
+        std::fs::read_to_string(dir.join(name)).ok()
+    }
+
+    #[test]
+    fn an_update_replaces_every_binary_the_archive_carries() {
+        let dir = scratch("replaces");
+        let cache = dir.join("update.json");
+        // What is on disk before: an older copy of each.
+        for b in SAMPLE.binaries {
+            std::fs::write(dir.join(b), "old").unwrap();
+        }
+
+        let fake = Fake::new(&dir, "9.9.9", &["samplegauge", "samplegauge-tui"]);
+        let applied = apply_with(&SAMPLE, &cache, &fake).expect("apply");
+
+        assert_eq!(applied.version, "9.9.9");
+        assert!(!applied.installer_launched);
+        for b in SAMPLE.binaries {
+            assert_eq!(
+                installed(&dir, b).as_deref(),
+                Some(format!("{b} 9.9.9").as_str()),
+                "{b} was not replaced"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The staging directory is inside the install directory so the final move
+    /// is a rename, and it must not survive the update that used it.
+    #[test]
+    fn the_staging_directory_is_gone_afterwards() {
+        let dir = scratch("staging");
+        std::fs::write(dir.join(SAMPLE.primary()), "old").unwrap();
+        let fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
+        apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap();
+
+        let strays: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with('.') && n.ends_with(".tmp"))
+            .collect();
+        assert!(strays.is_empty(), "left behind: {strays:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An archive that predates a binary carries none of it, and the rest of
+    /// the update is still worth doing.
+    #[test]
+    fn a_binary_the_archive_does_not_carry_is_left_alone() {
+        let dir = scratch("partial");
+        std::fs::write(dir.join("samplegauge"), "old").unwrap();
+        std::fs::write(dir.join("samplegauge-tui"), "old tui").unwrap();
+
+        let fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
+        apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap();
+
+        assert_eq!(
+            installed(&dir, "samplegauge").as_deref(),
+            Some("samplegauge 9.9.9")
+        );
+        assert_eq!(
+            installed(&dir, "samplegauge-tui").as_deref(),
+            Some("old tui"),
+            "a binary absent from the archive was touched"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Without the primary there is nothing to update to, and half-replacing
+    /// the set would leave an install describing a version it is not.
+    #[test]
+    fn an_archive_without_the_primary_is_refused_before_anything_moves() {
+        let dir = scratch("noprimary");
+        std::fs::write(dir.join("samplegauge"), "old").unwrap();
+        std::fs::write(dir.join("samplegauge-tui"), "old tui").unwrap();
+
+        let fake = Fake::new(&dir, "9.9.9", &["samplegauge-tui"]);
+        let err = apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap_err();
+        assert!(format!("{err:#}").contains("samplegauge"), "{err:#}");
+
+        assert_eq!(installed(&dir, "samplegauge").as_deref(), Some("old"));
+        assert_eq!(
+            installed(&dir, "samplegauge-tui").as_deref(),
+            Some("old tui")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A directory named like the primary passes `exists` and would land on
+    /// the installed binary's path, becoming what every alias points at.
+    #[test]
+    fn a_directory_wearing_the_primarys_name_is_not_a_binary() {
+        let dir = scratch("dirname");
+        std::fs::write(dir.join("samplegauge"), "old").unwrap();
+        let fake = Fake::new(&dir, "9.9.9", &["samplegauge/", "samplegauge-tui"]);
+        let err = apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("refusing a partial update"),
+            "{err:#}"
+        );
+        assert_eq!(installed(&dir, "samplegauge").as_deref(), Some("old"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_release_no_newer_than_this_one_replaces_nothing() {
+        let dir = scratch("current");
+        std::fs::write(dir.join("samplegauge"), "old").unwrap();
+        let fake = Fake::new(&dir, SAMPLE.version, &["samplegauge"]);
+        let applied = apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap();
+
+        assert_eq!(applied.version, SAMPLE.version);
+        assert!(applied.frontends.is_empty());
+        assert_eq!(
+            installed(&dir, "samplegauge").as_deref(),
+            Some("old"),
+            "an up-to-date check still wrote"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_release_with_no_asset_for_this_platform_is_an_error() {
+        let dir = scratch("noasset");
+        let mut fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
+        fake.asset_target = "solaris-sparc".into();
+        let err = apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap_err();
+        assert!(format!("{err:#}").contains("asset"), "{err:#}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The panel reads the cache, so an update that does not clear the banner
+    /// leaves it offering the version just installed.
+    #[test]
+    fn a_finished_update_clears_the_banner_it_was_started_from() {
+        let dir = scratch("banner");
+        let cache = dir.join("update.json");
+        std::fs::write(dir.join("samplegauge"), "old").unwrap();
+        state::write_update_status(
+            &cache,
+            &UpdateStatus {
+                current: SAMPLE.version.into(),
+                latest: Some("9.9.9".into()),
+                available: true,
+                notified: Some("9.9.9".into()),
+                checked_ms: 1,
+            },
+        )
+        .unwrap();
+
+        let fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
+        apply_with(&SAMPLE, &cache, &fake).unwrap();
+
+        let after = state::read_update_status(&cache).expect("a status");
+        assert_eq!(after.current, "9.9.9");
+        assert_eq!(after.latest.as_deref(), Some("9.9.9"));
+        assert!(!after.available, "the banner survived the update");
+        assert_eq!(
+            after.notified, None,
+            "the next version must be announceable"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn every_alias_points_at_the_binary_that_was_just_installed() {
+        let dir = scratch("apply-aliases");
+        std::fs::write(dir.join("samplegauge"), "old").unwrap();
+        let fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
+        apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap();
+
+        for alias in SAMPLE.aliases {
+            let path = dir.join(alias);
+            assert!(path.exists(), "{alias} was not installed");
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                "samplegauge 9.9.9",
+                "{alias} does not resolve to the new binary"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An old layout's executable that nothing writes now would otherwise stay
+    /// on PATH answering for a name the project has taken back.
+    #[test]
+    fn a_legacy_binary_is_taken_away_by_an_update() {
+        let dir = scratch("apply-legacy");
+        std::fs::write(dir.join("samplegauge"), "old").unwrap();
+        for legacy in SAMPLE.legacy {
+            std::fs::write(dir.join(legacy), "a shell script from before").unwrap();
+        }
+        let fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
+        apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap();
+
+        for legacy in SAMPLE.legacy {
+            assert!(!dir.join(legacy).exists(), "{legacy} survived the update");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -----------------------------------------------------------------------
+    // install_frontends
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn installing_a_frontend_from_a_release_that_ships_none_says_so() {
+        let dir = scratch("nopayload");
+        let fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
+        let targets: Vec<&'static Frontend> = SAMPLE.frontends.iter().collect();
+        let err = install_frontends_with(&SAMPLE, &targets, "9.9.9", &fake).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("no frontend payloads"),
+            "{err:#}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     const PROJECT: &Project = &SAMPLE;
 
