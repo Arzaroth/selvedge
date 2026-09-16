@@ -1,6 +1,6 @@
 [package]
 name = "selvedge"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 # File::try_lock, which the update lock is built on, is stable from 1.89.
 rust-version = "1.89"

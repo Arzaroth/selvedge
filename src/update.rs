@@ -23,6 +23,23 @@ use crate::state::{self, UpdateStatus};
 /// this is the caller's answer to how stale a banner may be.
 pub const CACHE_TTL_MS: i64 = 6 * 60 * 60 * 1000;
 
+/// Set by a caller that owns the screen, so a download does not draw on it.
+static QUIET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Stop drawing a progress bar for downloads.
+///
+/// The bar goes to stdout, which is the right place for a command line and the
+/// wrong one for a caller holding a drawn frame: a terminal UI updating itself
+/// gets the bar written across whatever it last painted. There is no way to
+/// tell those apart by looking - both are a terminal - so the caller says.
+pub fn silence_progress() {
+    QUIET.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn progress() -> bool {
+    !QUIET.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Distinguishes the binary archive from the other assets a release carries.
 ///
 /// Public because a consumer's own tests are what check that its release
@@ -493,7 +510,7 @@ fn fetch_into(tmp: &Path, name: &str, url: &str) -> Result<()> {
             http::header::ACCEPT,
             http::HeaderValue::from_static("application/octet-stream"),
         )
-        .show_progress(true)
+        .show_progress(progress())
         .download_to(file)
         .context("download failed")?;
 
@@ -611,7 +628,7 @@ fn msi_upgrade(release: &self_update::update::Release) -> Result<Applied> {
             http::header::ACCEPT,
             http::HeaderValue::from_static("application/octet-stream"),
         )
-        .show_progress(true)
+        .show_progress(progress())
         .download_to(f)
         .context("download failed")?;
 
