@@ -100,10 +100,11 @@ prefer (`SPDX-License-Identifier: MIT OR WTFPL`), matching both callers.
 
 The code was extracted from [TailGauge](https://github.com/Arzaroth/TailGauge)
 and merged with the equivalent half of
-[TokenGauge](https://github.com/Arzaroth/TokenGauge). Both are licensed the
-same way as this, and every line that came here was written by one person, who
-holds the copyright in it. Nothing was taken from a contributor whose terms
-this would have to respect.
+[TokenGauge](https://github.com/Arzaroth/TokenGauge). Every line that came here
+was written by one person, who holds the copyright in it and licenses it here
+under these terms. Nothing was taken from a contributor whose terms this would
+have to respect, and what either caller is licensed under is a question for
+that repository rather than a claim worth mirroring here.
 
 No third-party code is vendored. Every dependency is permissive - MIT,
 Apache-2.0 or dual - and none is copyleft.

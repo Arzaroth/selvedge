@@ -12,9 +12,10 @@ anything breaking is two repositories.
 
 ### Fixed
 
-- The README said TailGauge is GPL-3.0-or-later. Its `Cargo.toml` said so and
-  its `LICENSE` file did not; the licence is permissive, and the paragraph
-  explaining away a conflict that did not exist is gone.
+- The README described the callers' licence terms. It said TailGauge is
+  GPL-3.0-or-later, which its `Cargo.toml` said and its `LICENSE` file did not.
+  What another repository is licensed under is that repository's to state, so
+  the claim is gone rather than corrected.
 
 ### Changed
 
