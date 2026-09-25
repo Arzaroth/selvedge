@@ -116,20 +116,18 @@ pub fn check_cached(project: &Project, cache_file: &Path, force: bool) -> Result
 /// The operating system is part of it, not just the architecture: an x86_64
 /// answer that named only the architecture matched the Linux asset on Windows,
 /// and the update downloaded a tarball of ELF binaries.
-#[cfg(windows)]
 pub fn arch_target() -> Result<&'static str> {
-    match std::env::consts::ARCH {
-        "x86_64" => Ok("windows-x86_64"),
-        other => bail!("unsupported arch: {other}"),
-    }
+    target_for(std::env::consts::OS, std::env::consts::ARCH)
 }
 
-#[cfg(not(windows))]
-pub fn arch_target() -> Result<&'static str> {
-    match std::env::consts::ARCH {
-        "x86_64" => Ok("linux-x86_64"),
-        "aarch64" | "arm64" => Ok("linux-aarch64"),
-        other => bail!("unsupported arch: {other}"),
+fn target_for(os: &str, arch: &str) -> Result<&'static str> {
+    match (os, arch) {
+        ("windows", "x86_64") => Ok("windows-x86_64"),
+        ("linux", "x86_64") => Ok("linux-x86_64"),
+        ("linux", "aarch64") => Ok("linux-aarch64"),
+        ("macos", "x86_64") => Ok("macos-x86_64"),
+        ("macos", "aarch64") => Ok("macos-aarch64"),
+        (os, arch) => bail!("unsupported platform: {os} {arch}"),
     }
 }
 
@@ -289,6 +287,10 @@ pub(crate) trait Source {
     fn fetch_into(&self, tmp: &Path, asset: &ReleaseAsset) -> Result<()>;
     /// The directory the installed binaries live in.
     fn install_dir(&self) -> Result<PathBuf>;
+    /// Whether the running binary sits in a Homebrew keg.
+    fn homebrew_owned(&self) -> Result<bool> {
+        Ok(false)
+    }
     /// Which payloads this machine already has. An update refreshes those and
     /// does not decide a machine should grow a GNOME extension.
     fn installed_frontends(&self, project: &Project) -> Vec<&'static Frontend> {
@@ -314,6 +316,16 @@ impl Source for Github {
     fn install_dir(&self) -> Result<PathBuf> {
         install_dir()
     }
+
+    /// An error rather than `false` when the path cannot be resolved: the
+    /// unresolved path is the Homebrew symlink, and replacing it would be the
+    /// very thing this guards against.
+    fn homebrew_owned(&self) -> Result<bool> {
+        let exe = std::env::current_exe().context("cannot resolve current executable")?;
+        let exe = std::fs::canonicalize(&exe)
+            .with_context(|| format!("cannot resolve {}", exe.display()))?;
+        Ok(in_homebrew_cellar(&exe))
+    }
 }
 
 pub fn apply(project: &Project, cache_file: &Path) -> Result<Applied> {
@@ -333,6 +345,17 @@ pub(crate) fn apply_with(
             version: current.to_string(),
             frontends: Vec::new(),
         });
+    }
+
+    // Homebrew records the version it installed and links `bin/` into the
+    // keg of that version. Replacing the files in place leaves `brew upgrade`
+    // comparing against a version that is no longer there.
+    if source.homebrew_owned()? {
+        bail!(
+            "{} was installed by Homebrew - run `brew upgrade {}` instead",
+            project.primary(),
+            project.primary()
+        );
     }
 
     // Where an MSI owns what is on disk, it is the thing that upgrades it.
@@ -496,6 +519,13 @@ fn install_dir() -> Result<PathBuf> {
         .parent()
         .ok_or_else(|| anyhow!("cannot resolve install directory"))?
         .to_path_buf())
+}
+
+/// Homebrew installs every formula into `<prefix>/Cellar/<formula>/<version>`
+/// and symlinks it into `<prefix>/bin`, whatever the prefix, so the resolved
+/// path is what says who owns it.
+fn in_homebrew_cellar(exe: &Path) -> bool {
+    exe.components().any(|c| c.as_os_str() == "Cellar")
 }
 
 fn fetch_into(tmp: &Path, name: &str, url: &str) -> Result<()> {
@@ -724,6 +754,7 @@ mod tests {
         /// Relative paths to create under the staging directory.
         ships: Vec<String>,
         asset_target: String,
+        homebrew_owned: bool,
     }
 
     impl Fake {
@@ -733,6 +764,7 @@ mod tests {
                 install_dir: dir.to_path_buf(),
                 ships: ships.iter().map(|s| s.to_string()).collect(),
                 asset_target: arch_target().expect("a supported arch").to_string(),
+                homebrew_owned: false,
             }
         }
 
@@ -779,6 +811,10 @@ mod tests {
 
         fn install_dir(&self) -> Result<PathBuf> {
             Ok(self.install_dir.clone())
+        }
+
+        fn homebrew_owned(&self) -> Result<bool> {
+            Ok(self.homebrew_owned)
         }
 
         fn installed_frontends(&self, _project: &Project) -> Vec<&'static Frontend> {
@@ -919,6 +955,36 @@ mod tests {
         let err = apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap_err();
         assert!(format!("{err:#}").contains("asset"), "{err:#}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_homebrew_install_is_left_to_brew() {
+        let dir = scratch("homebrew");
+        std::fs::write(dir.join("samplegauge"), "old").unwrap();
+        let mut fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
+        fake.homebrew_owned = true;
+        let err = apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap_err();
+        assert!(format!("{err:#}").contains("brew upgrade"), "{err:#}");
+        assert_eq!(installed(&dir, "samplegauge").as_deref(), Some("old"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_binary_is_homebrews_when_it_resolves_into_a_cellar() {
+        for exe in [
+            "/opt/homebrew/Cellar/samplegauge/1.0.0/bin/samplegauge",
+            "/usr/local/Cellar/samplegauge/1.0.0/bin/samplegauge",
+            "/home/linuxbrew/.linuxbrew/Cellar/samplegauge/1.0.0/bin/samplegauge",
+        ] {
+            assert!(in_homebrew_cellar(Path::new(exe)), "{exe}");
+        }
+        for exe in [
+            "/home/user/.local/bin/samplegauge",
+            "/Users/user/.local/bin/samplegauge",
+            "/opt/homebrew/bin/samplegauge-cellar",
+        ] {
+            assert!(!in_homebrew_cellar(Path::new(exe)), "{exe}");
+        }
     }
 
     /// The panel reads the cache, so an update that does not clear the banner
@@ -1372,10 +1438,32 @@ mod tests {
     #[test]
     fn the_platform_substring_names_the_running_os() {
         let target = arch_target().expect("this test builds on supported arches only");
-        let os = if cfg!(windows) { "windows" } else { "linux" };
+        let os = std::env::consts::OS;
         assert!(
             target.starts_with(os),
             "{target} does not name {os}, so it matches another platform's asset"
         );
+    }
+
+    /// No target may be a substring of another, or `archive_asset` picks
+    /// whichever the release happens to list first.
+    #[test]
+    fn every_platform_asks_for_an_asset_no_other_platform_matches() {
+        let targets: Vec<_> = [
+            ("windows", "x86_64"),
+            ("linux", "x86_64"),
+            ("linux", "aarch64"),
+            ("macos", "x86_64"),
+            ("macos", "aarch64"),
+        ]
+        .iter()
+        .map(|(os, arch)| target_for(os, arch).unwrap())
+        .collect();
+        for a in &targets {
+            for b in &targets {
+                assert!(a == b || !b.contains(a), "{a} matches {b}'s asset");
+            }
+        }
+        assert!(target_for("freebsd", "x86_64").is_err());
     }
 }
