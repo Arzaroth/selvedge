@@ -116,20 +116,18 @@ pub fn check_cached(project: &Project, cache_file: &Path, force: bool) -> Result
 /// The operating system is part of it, not just the architecture: an x86_64
 /// answer that named only the architecture matched the Linux asset on Windows,
 /// and the update downloaded a tarball of ELF binaries.
-#[cfg(windows)]
 pub fn arch_target() -> Result<&'static str> {
-    match std::env::consts::ARCH {
-        "x86_64" => Ok("windows-x86_64"),
-        other => bail!("unsupported arch: {other}"),
-    }
+    target_for(std::env::consts::OS, std::env::consts::ARCH)
 }
 
-#[cfg(not(windows))]
-pub fn arch_target() -> Result<&'static str> {
-    match std::env::consts::ARCH {
-        "x86_64" => Ok("linux-x86_64"),
-        "aarch64" | "arm64" => Ok("linux-aarch64"),
-        other => bail!("unsupported arch: {other}"),
+fn target_for(os: &str, arch: &str) -> Result<&'static str> {
+    match (os, arch) {
+        ("windows", "x86_64") => Ok("windows-x86_64"),
+        ("linux", "x86_64") => Ok("linux-x86_64"),
+        ("linux", "aarch64") => Ok("linux-aarch64"),
+        ("macos", "x86_64") => Ok("macos-x86_64"),
+        ("macos", "aarch64") => Ok("macos-aarch64"),
+        (os, arch) => bail!("unsupported platform: {os} {arch}"),
     }
 }
 
@@ -1372,10 +1370,32 @@ mod tests {
     #[test]
     fn the_platform_substring_names_the_running_os() {
         let target = arch_target().expect("this test builds on supported arches only");
-        let os = if cfg!(windows) { "windows" } else { "linux" };
+        let os = std::env::consts::OS;
         assert!(
             target.starts_with(os),
             "{target} does not name {os}, so it matches another platform's asset"
         );
+    }
+
+    /// No target may be a substring of another, or `archive_asset` picks
+    /// whichever the release happens to list first.
+    #[test]
+    fn every_platform_asks_for_an_asset_no_other_platform_matches() {
+        let targets: Vec<_> = [
+            ("windows", "x86_64"),
+            ("linux", "x86_64"),
+            ("linux", "aarch64"),
+            ("macos", "x86_64"),
+            ("macos", "aarch64"),
+        ]
+        .iter()
+        .map(|(os, arch)| target_for(os, arch).unwrap())
+        .collect();
+        for a in &targets {
+            for b in &targets {
+                assert!(a == b || !b.contains(a), "{a} matches {b}'s asset");
+            }
+        }
+        assert!(target_for("freebsd", "x86_64").is_err());
     }
 }
