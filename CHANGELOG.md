@@ -10,6 +10,17 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Added
+
+- **macOS.** `arch_target` answers `macos-x86_64` and `macos-aarch64`. It used
+  to answer `linux-*` for anything that was not Windows, so a Mac running an
+  update would have downloaded the Linux tarball and installed ELF binaries
+  over itself. Any other platform is now refused rather than handed Linux.
+- **A Homebrew install is left to Homebrew.** `apply` refuses when the running
+  binary resolves into a `Cellar`, and says to run `brew upgrade` instead.
+  Replacing the keg's files in place leaves brew describing a version that is
+  no longer on disk.
+
 ### Fixed
 
 - The README described the callers' licence terms. It said TailGauge is
