@@ -10,6 +10,8 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-25
+
 ### Added
 
 - **macOS.** `arch_target` answers `macos-x86_64` and `macos-aarch64`. It used
@@ -19,7 +21,8 @@ anything breaking is two repositories.
 - **A Homebrew install is left to Homebrew.** `apply` refuses when the running
   binary resolves into a `Cellar`, and says to run `brew upgrade` instead.
   Replacing the keg's files in place leaves brew describing a version that is
-  no longer on disk.
+  no longer on disk. A binary whose own path cannot be resolved is refused too,
+  since that unresolved path is the brew symlink.
 
 ### Fixed
 
@@ -32,6 +35,14 @@ anything breaking is two repositories.
 
 - Dual-licensed MIT OR WTFPL, matching TokenGauge. It was MIT; nothing is taken
   away.
+
+## [0.3.2] - 2026-09-16
+
+### Added
+
+- `update::silence_progress()` stops downloads drawing a progress bar. The bar
+  goes to stdout, which is right for a command line and wrong for a terminal UI
+  that owns the screen: it was written across the last frame the UI painted.
 
 ## [0.3.1] - 2026-09-16
 
@@ -100,7 +111,9 @@ anything breaking is two repositories.
 
 - The updater and the desktop payload installer, extracted from TailGauge.
 
-[Unreleased]: https://github.com/Arzaroth/selvedge/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/Arzaroth/selvedge/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Arzaroth/selvedge/compare/v0.3.2...v0.4.0
+[0.3.2]: https://github.com/Arzaroth/selvedge/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Arzaroth/selvedge/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Arzaroth/selvedge/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/Arzaroth/selvedge/compare/v0.2.1...v0.2.2
