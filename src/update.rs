@@ -288,8 +288,8 @@ pub(crate) trait Source {
     /// The directory the installed binaries live in.
     fn install_dir(&self) -> Result<PathBuf>;
     /// Whether the running binary sits in a Homebrew keg.
-    fn homebrew_owned(&self) -> bool {
-        false
+    fn homebrew_owned(&self) -> Result<bool> {
+        Ok(false)
     }
     /// Which payloads this machine already has. An update refreshes those and
     /// does not decide a machine should grow a GNOME extension.
@@ -317,10 +317,14 @@ impl Source for Github {
         install_dir()
     }
 
-    fn homebrew_owned(&self) -> bool {
-        std::env::current_exe()
-            .and_then(std::fs::canonicalize)
-            .is_ok_and(|exe| in_homebrew_cellar(&exe))
+    /// An error rather than `false` when the path cannot be resolved: the
+    /// unresolved path is the Homebrew symlink, and replacing it would be the
+    /// very thing this guards against.
+    fn homebrew_owned(&self) -> Result<bool> {
+        let exe = std::env::current_exe().context("cannot resolve current executable")?;
+        let exe = std::fs::canonicalize(&exe)
+            .with_context(|| format!("cannot resolve {}", exe.display()))?;
+        Ok(in_homebrew_cellar(&exe))
     }
 }
 
@@ -346,7 +350,7 @@ pub(crate) fn apply_with(
     // Homebrew records the version it installed and links `bin/` into the
     // keg of that version. Replacing the files in place leaves `brew upgrade`
     // comparing against a version that is no longer there.
-    if source.homebrew_owned() {
+    if source.homebrew_owned()? {
         bail!(
             "{} was installed by Homebrew - run `brew upgrade {}` instead",
             project.primary(),
@@ -809,8 +813,8 @@ mod tests {
             Ok(self.install_dir.clone())
         }
 
-        fn homebrew_owned(&self) -> bool {
-            self.homebrew_owned
+        fn homebrew_owned(&self) -> Result<bool> {
+            Ok(self.homebrew_owned)
         }
 
         fn installed_frontends(&self, _project: &Project) -> Vec<&'static Frontend> {
