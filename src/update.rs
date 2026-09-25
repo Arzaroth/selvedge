@@ -287,6 +287,10 @@ pub(crate) trait Source {
     fn fetch_into(&self, tmp: &Path, asset: &ReleaseAsset) -> Result<()>;
     /// The directory the installed binaries live in.
     fn install_dir(&self) -> Result<PathBuf>;
+    /// Whether the running binary sits in a Homebrew keg.
+    fn homebrew_owned(&self) -> bool {
+        false
+    }
     /// Which payloads this machine already has. An update refreshes those and
     /// does not decide a machine should grow a GNOME extension.
     fn installed_frontends(&self, project: &Project) -> Vec<&'static Frontend> {
@@ -312,6 +316,12 @@ impl Source for Github {
     fn install_dir(&self) -> Result<PathBuf> {
         install_dir()
     }
+
+    fn homebrew_owned(&self) -> bool {
+        std::env::current_exe()
+            .and_then(std::fs::canonicalize)
+            .is_ok_and(|exe| in_homebrew_cellar(&exe))
+    }
 }
 
 pub fn apply(project: &Project, cache_file: &Path) -> Result<Applied> {
@@ -331,6 +341,17 @@ pub(crate) fn apply_with(
             version: current.to_string(),
             frontends: Vec::new(),
         });
+    }
+
+    // Homebrew records the version it installed and links `bin/` into the
+    // keg of that version. Replacing the files in place leaves `brew upgrade`
+    // comparing against a version that is no longer there.
+    if source.homebrew_owned() {
+        bail!(
+            "{} was installed by Homebrew - run `brew upgrade {}` instead",
+            project.primary(),
+            project.primary()
+        );
     }
 
     // Where an MSI owns what is on disk, it is the thing that upgrades it.
@@ -494,6 +515,13 @@ fn install_dir() -> Result<PathBuf> {
         .parent()
         .ok_or_else(|| anyhow!("cannot resolve install directory"))?
         .to_path_buf())
+}
+
+/// Homebrew installs every formula into `<prefix>/Cellar/<formula>/<version>`
+/// and symlinks it into `<prefix>/bin`, whatever the prefix, so the resolved
+/// path is what says who owns it.
+fn in_homebrew_cellar(exe: &Path) -> bool {
+    exe.components().any(|c| c.as_os_str() == "Cellar")
 }
 
 fn fetch_into(tmp: &Path, name: &str, url: &str) -> Result<()> {
@@ -722,6 +750,7 @@ mod tests {
         /// Relative paths to create under the staging directory.
         ships: Vec<String>,
         asset_target: String,
+        homebrew_owned: bool,
     }
 
     impl Fake {
@@ -731,6 +760,7 @@ mod tests {
                 install_dir: dir.to_path_buf(),
                 ships: ships.iter().map(|s| s.to_string()).collect(),
                 asset_target: arch_target().expect("a supported arch").to_string(),
+                homebrew_owned: false,
             }
         }
 
@@ -777,6 +807,10 @@ mod tests {
 
         fn install_dir(&self) -> Result<PathBuf> {
             Ok(self.install_dir.clone())
+        }
+
+        fn homebrew_owned(&self) -> bool {
+            self.homebrew_owned
         }
 
         fn installed_frontends(&self, _project: &Project) -> Vec<&'static Frontend> {
@@ -917,6 +951,36 @@ mod tests {
         let err = apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap_err();
         assert!(format!("{err:#}").contains("asset"), "{err:#}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_homebrew_install_is_left_to_brew() {
+        let dir = scratch("homebrew");
+        std::fs::write(dir.join("samplegauge"), "old").unwrap();
+        let mut fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
+        fake.homebrew_owned = true;
+        let err = apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap_err();
+        assert!(format!("{err:#}").contains("brew upgrade"), "{err:#}");
+        assert_eq!(installed(&dir, "samplegauge").as_deref(), Some("old"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_binary_is_homebrews_when_it_resolves_into_a_cellar() {
+        for exe in [
+            "/opt/homebrew/Cellar/samplegauge/1.0.0/bin/samplegauge",
+            "/usr/local/Cellar/samplegauge/1.0.0/bin/samplegauge",
+            "/home/linuxbrew/.linuxbrew/Cellar/samplegauge/1.0.0/bin/samplegauge",
+        ] {
+            assert!(in_homebrew_cellar(Path::new(exe)), "{exe}");
+        }
+        for exe in [
+            "/home/user/.local/bin/samplegauge",
+            "/Users/user/.local/bin/samplegauge",
+            "/opt/homebrew/bin/samplegauge-cellar",
+        ] {
+            assert!(!in_homebrew_cellar(Path::new(exe)), "{exe}");
+        }
     }
 
     /// The panel reads the cache, so an update that does not clear the banner
