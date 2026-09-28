@@ -358,6 +358,18 @@ pub(crate) fn apply_with(
         );
     }
 
+    // A signed bundle is sealed: a binary swapped inside it breaks the seal,
+    // and macOS then reports the whole app as damaged. It updates by being
+    // replaced, which the release's own download does.
+    if let Some(Owner::AppBundle(bundle)) = source.owner()? {
+        bail!(
+            "{} runs from {}, which an update would break - download the new release from https://github.com/{}/releases/latest instead",
+            project.primary(),
+            bundle.display(),
+            project.repo()
+        );
+    }
+
     // Where an MSI owns what is on disk, it is the thing that upgrades it.
     // Replacing the files underneath would leave Windows describing a version
     // that is no longer installed, and a later package comparing against it.
@@ -525,15 +537,31 @@ fn install_dir() -> Result<PathBuf> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Owner {
     Homebrew,
+    /// The `.app` bundle the binary runs from.
+    AppBundle(PathBuf),
 }
 
 /// Homebrew installs every formula into `<prefix>/Cellar/<formula>/<version>`
 /// and symlinks it into `<prefix>/bin`, whatever the prefix, so the resolved
 /// path is what says who owns it.
 fn owner_of(exe: &Path) -> Option<Owner> {
-    exe.components()
-        .any(|c| c.as_os_str() == "Cellar")
-        .then_some(Owner::Homebrew)
+    if exe.components().any(|c| c.as_os_str() == "Cellar") {
+        return Some(Owner::Homebrew);
+    }
+    app_bundle(exe).map(Owner::AppBundle)
+}
+
+/// `Foo.app` for a binary under `Foo.app/Contents/`. A directory merely named
+/// `.app` elsewhere on the path is not a bundle.
+fn app_bundle(exe: &Path) -> Option<PathBuf> {
+    exe.ancestors()
+        .find(|dir| {
+            dir.extension().is_some_and(|ext| ext == "app")
+                && exe
+                    .strip_prefix(dir)
+                    .is_ok_and(|rest| rest.starts_with("Contents"))
+        })
+        .map(Path::to_path_buf)
 }
 
 fn fetch_into(tmp: &Path, name: &str, url: &str) -> Result<()> {
@@ -990,6 +1018,42 @@ mod tests {
             "/home/user/.local/bin/samplegauge",
             "/Users/user/.local/bin/samplegauge",
             "/opt/homebrew/bin/samplegauge-cellar",
+        ] {
+            assert_eq!(owner_of(Path::new(exe)), None, "{exe}");
+        }
+    }
+
+    #[test]
+    fn an_app_bundle_is_replaced_whole_not_patched() {
+        let dir = scratch("appbundle");
+        std::fs::write(dir.join("samplegauge"), "old").unwrap();
+        let mut fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
+        fake.owner = Some(Owner::AppBundle(PathBuf::from(
+            "/Applications/SampleGauge.app",
+        )));
+        let err = format!(
+            "{:#}",
+            apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap_err()
+        );
+        assert!(err.contains("SampleGauge.app"), "{err}");
+        assert!(err.contains("/releases/latest"), "{err}");
+        assert_eq!(installed(&dir, "samplegauge").as_deref(), Some("old"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_binary_is_a_bundles_only_when_it_sits_under_contents() {
+        assert_eq!(
+            owner_of(Path::new(
+                "/Applications/SampleGauge.app/Contents/MacOS/samplegauge"
+            )),
+            Some(Owner::AppBundle(PathBuf::from(
+                "/Applications/SampleGauge.app"
+            )))
+        );
+        for exe in [
+            "/Users/me/tools.app/bin/samplegauge",
+            "/Users/me/.local/bin/samplegauge",
         ] {
             assert_eq!(owner_of(Path::new(exe)), None, "{exe}");
         }
