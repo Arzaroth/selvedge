@@ -10,6 +10,13 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Added
+
+- **An app bundle is replaced whole.** `apply` refuses when the running binary
+  sits under a `.app/Contents/` and points at the latest release to download
+  instead. A binary swapped inside a signed bundle breaks its seal, and macOS
+  then reports the whole app as damaged.
+
 ## [0.4.0] - 2026-09-25
 
 ### Added
