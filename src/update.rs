@@ -287,9 +287,9 @@ pub(crate) trait Source {
     fn fetch_into(&self, tmp: &Path, asset: &ReleaseAsset) -> Result<()>;
     /// The directory the installed binaries live in.
     fn install_dir(&self) -> Result<PathBuf>;
-    /// Whether the running binary sits in a Homebrew keg.
-    fn homebrew_owned(&self) -> Result<bool> {
-        Ok(false)
+    /// Who installed the running binary, when it is someone other than us.
+    fn owner(&self) -> Result<Option<Owner>> {
+        Ok(None)
     }
     /// Which payloads this machine already has. An update refreshes those and
     /// does not decide a machine should grow a GNOME extension.
@@ -317,14 +317,14 @@ impl Source for Github {
         install_dir()
     }
 
-    /// An error rather than `false` when the path cannot be resolved: the
+    /// An error rather than `None` when the path cannot be resolved: the
     /// unresolved path is the Homebrew symlink, and replacing it would be the
     /// very thing this guards against.
-    fn homebrew_owned(&self) -> Result<bool> {
-        let exe = std::env::current_exe().context("cannot resolve current executable")?;
-        let exe = std::fs::canonicalize(&exe)
-            .with_context(|| format!("cannot resolve {}", exe.display()))?;
-        Ok(in_homebrew_cellar(&exe))
+    fn owner(&self) -> Result<Option<Owner>> {
+        let invoked = std::env::current_exe().context("cannot resolve current executable")?;
+        let resolved = std::fs::canonicalize(&invoked)
+            .with_context(|| format!("cannot resolve {}", invoked.display()))?;
+        Ok(owner_of_run(&invoked, &resolved))
     }
 }
 
@@ -350,11 +350,24 @@ pub(crate) fn apply_with(
     // Homebrew records the version it installed and links `bin/` into the
     // keg of that version. Replacing the files in place leaves `brew upgrade`
     // comparing against a version that is no longer there.
-    if source.homebrew_owned()? {
+    let owner = source.owner()?;
+    if let Some(Owner::Homebrew) = owner {
         bail!(
             "{} was installed by Homebrew - run `brew upgrade {}` instead",
             project.primary(),
             project.primary()
+        );
+    }
+
+    // A signed bundle is sealed: a binary swapped inside it breaks the seal,
+    // and macOS then reports the whole app as damaged. It updates by being
+    // replaced, which the release's own download does.
+    if let Some(Owner::AppBundle(bundle)) = owner {
+        bail!(
+            "{} runs from {}, which an update would break - download the new release from https://github.com/{}/releases/latest instead",
+            project.primary(),
+            bundle.display(),
+            project.repo()
         );
     }
 
@@ -521,11 +534,41 @@ fn install_dir() -> Result<PathBuf> {
         .to_path_buf())
 }
 
+/// An installer other than this one, which an update must not go around.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Owner {
+    Homebrew,
+    /// The `.app` bundle the binary runs from.
+    AppBundle(PathBuf),
+}
+
 /// Homebrew installs every formula into `<prefix>/Cellar/<formula>/<version>`
 /// and symlinks it into `<prefix>/bin`, whatever the prefix, so the resolved
 /// path is what says who owns it.
-fn in_homebrew_cellar(exe: &Path) -> bool {
-    exe.components().any(|c| c.as_os_str() == "Cellar")
+fn owner_of(exe: &Path) -> Option<Owner> {
+    if exe.components().any(|c| c.as_os_str() == "Cellar") {
+        return Some(Owner::Homebrew);
+    }
+    app_bundle(exe).map(Owner::AppBundle)
+}
+
+/// The update replaces the invoked path, so a symlink inside a bundle that
+/// resolves outside it still belongs to the bundle.
+fn owner_of_run(invoked: &Path, resolved: &Path) -> Option<Owner> {
+    owner_of(resolved).or_else(|| app_bundle(invoked).map(Owner::AppBundle))
+}
+
+/// `Foo.app` for a binary under `Foo.app/Contents/`. A directory merely named
+/// `.app` elsewhere on the path is not a bundle.
+fn app_bundle(exe: &Path) -> Option<PathBuf> {
+    exe.ancestors()
+        .find(|dir| {
+            dir.extension().is_some_and(|ext| ext == "app")
+                && exe
+                    .strip_prefix(dir)
+                    .is_ok_and(|rest| rest.starts_with("Contents"))
+        })
+        .map(Path::to_path_buf)
 }
 
 fn fetch_into(tmp: &Path, name: &str, url: &str) -> Result<()> {
@@ -754,7 +797,7 @@ mod tests {
         /// Relative paths to create under the staging directory.
         ships: Vec<String>,
         asset_target: String,
-        homebrew_owned: bool,
+        owner: Option<Owner>,
     }
 
     impl Fake {
@@ -764,7 +807,7 @@ mod tests {
                 install_dir: dir.to_path_buf(),
                 ships: ships.iter().map(|s| s.to_string()).collect(),
                 asset_target: arch_target().expect("a supported arch").to_string(),
-                homebrew_owned: false,
+                owner: None,
             }
         }
 
@@ -813,8 +856,8 @@ mod tests {
             Ok(self.install_dir.clone())
         }
 
-        fn homebrew_owned(&self) -> Result<bool> {
-            Ok(self.homebrew_owned)
+        fn owner(&self) -> Result<Option<Owner>> {
+            Ok(self.owner.clone())
         }
 
         fn installed_frontends(&self, _project: &Project) -> Vec<&'static Frontend> {
@@ -962,7 +1005,7 @@ mod tests {
         let dir = scratch("homebrew");
         std::fs::write(dir.join("samplegauge"), "old").unwrap();
         let mut fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
-        fake.homebrew_owned = true;
+        fake.owner = Some(Owner::Homebrew);
         let err = apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap_err();
         assert!(format!("{err:#}").contains("brew upgrade"), "{err:#}");
         assert_eq!(installed(&dir, "samplegauge").as_deref(), Some("old"));
@@ -976,15 +1019,78 @@ mod tests {
             "/usr/local/Cellar/samplegauge/1.0.0/bin/samplegauge",
             "/home/linuxbrew/.linuxbrew/Cellar/samplegauge/1.0.0/bin/samplegauge",
         ] {
-            assert!(in_homebrew_cellar(Path::new(exe)), "{exe}");
+            assert_eq!(owner_of(Path::new(exe)), Some(Owner::Homebrew), "{exe}");
         }
         for exe in [
             "/home/user/.local/bin/samplegauge",
             "/Users/user/.local/bin/samplegauge",
             "/opt/homebrew/bin/samplegauge-cellar",
         ] {
-            assert!(!in_homebrew_cellar(Path::new(exe)), "{exe}");
+            assert_eq!(owner_of(Path::new(exe)), None, "{exe}");
         }
+    }
+
+    #[test]
+    fn an_app_bundle_is_replaced_whole_not_patched() {
+        let dir = scratch("appbundle");
+        std::fs::write(dir.join("samplegauge"), "old").unwrap();
+        let mut fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
+        fake.owner = Some(Owner::AppBundle(PathBuf::from(
+            "/Applications/SampleGauge.app",
+        )));
+        let err = format!(
+            "{:#}",
+            apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap_err()
+        );
+        assert!(err.contains("SampleGauge.app"), "{err}");
+        assert!(err.contains("/releases/latest"), "{err}");
+        assert_eq!(installed(&dir, "samplegauge").as_deref(), Some("old"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_binary_is_a_bundles_only_when_it_sits_under_contents() {
+        assert_eq!(
+            owner_of(Path::new(
+                "/Applications/SampleGauge.app/Contents/MacOS/samplegauge"
+            )),
+            Some(Owner::AppBundle(PathBuf::from(
+                "/Applications/SampleGauge.app"
+            )))
+        );
+        for exe in [
+            "/Users/me/tools.app/bin/samplegauge",
+            "/Users/me/.local/bin/samplegauge",
+        ] {
+            assert_eq!(owner_of(Path::new(exe)), None, "{exe}");
+        }
+    }
+
+    #[test]
+    fn a_symlink_inside_a_bundle_belongs_to_the_bundle() {
+        assert_eq!(
+            owner_of_run(
+                Path::new("/Applications/SampleGauge.app/Contents/MacOS/samplegauge"),
+                Path::new("/Users/me/.local/bin/samplegauge"),
+            ),
+            Some(Owner::AppBundle(PathBuf::from(
+                "/Applications/SampleGauge.app"
+            )))
+        );
+        assert_eq!(
+            owner_of_run(
+                Path::new("/opt/homebrew/bin/samplegauge"),
+                Path::new("/opt/homebrew/Cellar/samplegauge/1.0.0/bin/samplegauge"),
+            ),
+            Some(Owner::Homebrew)
+        );
+        assert_eq!(
+            owner_of_run(
+                Path::new("/Users/me/.local/bin/samplegauge"),
+                Path::new("/Users/me/.local/bin/samplegauge"),
+            ),
+            None
+        );
     }
 
     /// The panel reads the cache, so an update that does not clear the banner
