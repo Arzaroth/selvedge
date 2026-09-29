@@ -350,7 +350,8 @@ pub(crate) fn apply_with(
     // Homebrew records the version it installed and links `bin/` into the
     // keg of that version. Replacing the files in place leaves `brew upgrade`
     // comparing against a version that is no longer there.
-    if let Some(Owner::Homebrew) = source.owner()? {
+    let owner = source.owner()?;
+    if let Some(Owner::Homebrew) = owner {
         bail!(
             "{} was installed by Homebrew - run `brew upgrade {}` instead",
             project.primary(),
@@ -361,7 +362,7 @@ pub(crate) fn apply_with(
     // A signed bundle is sealed: a binary swapped inside it breaks the seal,
     // and macOS then reports the whole app as damaged. It updates by being
     // replaced, which the release's own download does.
-    if let Some(Owner::AppBundle(bundle)) = source.owner()? {
+    if let Some(Owner::AppBundle(bundle)) = owner {
         bail!(
             "{} runs from {}, which an update would break - download the new release from https://github.com/{}/releases/latest instead",
             project.primary(),
