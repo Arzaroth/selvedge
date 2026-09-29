@@ -10,12 +10,15 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-29
+
 ### Added
 
 - **An app bundle is replaced whole.** `apply` refuses when the running binary
   sits under a `.app/Contents/` and points at the latest release to download
-  instead. A binary swapped inside a signed bundle breaks its seal, and macOS
-  then reports the whole app as damaged.
+  instead, whether it was launched from the bundle or through a symlink inside
+  it. A binary swapped inside a signed bundle breaks its seal, and macOS then
+  reports the whole app as damaged.
 
 ## [0.4.0] - 2026-09-25
 
@@ -118,7 +121,8 @@ anything breaking is two repositories.
 
 - The updater and the desktop payload installer, extracted from TailGauge.
 
-[Unreleased]: https://github.com/Arzaroth/selvedge/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Arzaroth/selvedge/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Arzaroth/selvedge/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Arzaroth/selvedge/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/Arzaroth/selvedge/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/Arzaroth/selvedge/compare/v0.3.0...v0.3.1
