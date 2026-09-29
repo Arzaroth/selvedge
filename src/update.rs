@@ -1066,6 +1066,33 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_symlink_inside_a_bundle_belongs_to_the_bundle() {
+        assert_eq!(
+            owner_of_run(
+                Path::new("/Applications/SampleGauge.app/Contents/MacOS/samplegauge"),
+                Path::new("/Users/me/.local/bin/samplegauge"),
+            ),
+            Some(Owner::AppBundle(PathBuf::from(
+                "/Applications/SampleGauge.app"
+            )))
+        );
+        assert_eq!(
+            owner_of_run(
+                Path::new("/opt/homebrew/bin/samplegauge"),
+                Path::new("/opt/homebrew/Cellar/samplegauge/1.0.0/bin/samplegauge"),
+            ),
+            Some(Owner::Homebrew)
+        );
+        assert_eq!(
+            owner_of_run(
+                Path::new("/Users/me/.local/bin/samplegauge"),
+                Path::new("/Users/me/.local/bin/samplegauge"),
+            ),
+            None
+        );
+    }
+
     /// The panel reads the cache, so an update that does not clear the banner
     /// leaves it offering the version just installed.
     #[test]
