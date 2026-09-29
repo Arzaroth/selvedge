@@ -321,10 +321,10 @@ impl Source for Github {
     /// unresolved path is the Homebrew symlink, and replacing it would be the
     /// very thing this guards against.
     fn owner(&self) -> Result<Option<Owner>> {
-        let exe = std::env::current_exe().context("cannot resolve current executable")?;
-        let exe = std::fs::canonicalize(&exe)
-            .with_context(|| format!("cannot resolve {}", exe.display()))?;
-        Ok(owner_of(&exe))
+        let invoked = std::env::current_exe().context("cannot resolve current executable")?;
+        let resolved = std::fs::canonicalize(&invoked)
+            .with_context(|| format!("cannot resolve {}", invoked.display()))?;
+        Ok(owner_of_run(&invoked, &resolved))
     }
 }
 
@@ -550,6 +550,12 @@ fn owner_of(exe: &Path) -> Option<Owner> {
         return Some(Owner::Homebrew);
     }
     app_bundle(exe).map(Owner::AppBundle)
+}
+
+/// The update replaces the invoked path, so a symlink inside a bundle that
+/// resolves outside it still belongs to the bundle.
+fn owner_of_run(invoked: &Path, resolved: &Path) -> Option<Owner> {
+    owner_of(resolved).or_else(|| app_bundle(invoked).map(Owner::AppBundle))
 }
 
 /// `Foo.app` for a binary under `Foo.app/Contents/`. A directory merely named
