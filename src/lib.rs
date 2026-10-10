@@ -9,8 +9,13 @@
 //! Everything here is machinery. What differs between the two - the binary's
 //! name, the repository its releases come from, the frontends it ships - is
 //! declared by the caller in a [`Project`] and handed back in.
+//!
+//! [`plans`] is the other thing they share and is not about updating: adding
+//! several subscriptions at one vendor up into one meter, which TokenGauge
+//! and remuda both draw.
 
 pub mod frontend;
+pub mod plans;
 pub mod proc;
 pub mod state;
 #[cfg(feature = "self-update")]

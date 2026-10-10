@@ -10,6 +10,15 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Added
+
+- **`plans`: several subscriptions added up into one meter.** `pool` counts
+  each plan in units of the largest ("105% of 105%" for a spent Max 20x and
+  Pro), gives the pooled fraction a bar fills to, and each plan's split-bar
+  segment, a tenth of the bar at least. `whole_percent` rounds a half to even,
+  as `{:.0}` does. TokenGauge and remuda each had a copy, one of them in
+  TypeScript. Weights may be fractional: a Claude Team seat is 1.25 Pros.
+
 ## [0.5.0] - 2026-09-29
 
 ### Added
