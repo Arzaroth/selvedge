@@ -48,6 +48,29 @@ let status = selvedge::update::check_cached(&TAILGAUGE, &cache, force)?;
 let applied = selvedge::update::apply(&TAILGAUGE, &cache)?;
 ```
 
+## Several plans in one meter
+
+`selvedge::plans` is the other thing the projects share: adding several
+subscriptions at one vendor up into one meter. TokenGauge draws it in its
+panels and remuda on its page, and each used to carry its own copy of the
+arithmetic, in Rust and in TypeScript.
+
+```rust
+use selvedge::plans::{pool, Share};
+
+let p = pool(&[
+    Share { used: 100.0, weight: 20.0 }, // a Max 20x, spent
+    Share { used: 100.0, weight: 1.0 },  // a Pro, spent
+]).unwrap();
+assert_eq!(p.label(), "105% of 105%");
+```
+
+Plans count in units of the largest one, a half rounds to even, a pooled bar
+fills to `Σ used × weight ÷ Σ weight`, and a split bar gives each plan the
+stretch its weight buys, a tenth of the bar at least. Only the numbers are
+here: the label, the tone and any "estimate" badge are the caller's. It
+needs no feature and links nothing.
+
 ## The lock
 
 An update takes an exclusive lock on the install directory so one fired from
