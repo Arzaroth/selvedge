@@ -221,7 +221,19 @@ mod tests {
             &segment_widths(&[20.0, 5.0, 1.0]),
             &[0.72, 0.18, 0.1]
         ));
+        assert!(close(
+            &segment_widths(&[20.0, 20.0, 20.0, 5.0, 5.0, 1.0]),
+            &[7.0 / 30.0, 7.0 / 30.0, 7.0 / 30.0, 0.1, 0.1, 0.1]
+        ));
+    }
+
+    #[test]
+    fn ten_or_more_plans_share_the_bar_evenly() {
         assert!(close(&segment_widths(&[1.0; 12]), &[1.0 / 12.0; 12]));
+        let mut weights = vec![20.0];
+        weights.extend([1.0; 9]);
+        assert!(close(&segment_widths(&weights), &[0.1; 10]));
+        assert!(close(&segment_widths(&[5.0]), &[1.0]));
         assert!(segment_widths(&[]).is_empty());
     }
 }
