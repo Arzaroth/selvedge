@@ -349,7 +349,7 @@ pub fn owner(project: &Project) -> Result<Option<Owner>> {
     if found.is_none()
         && project
             .msi_marker_key
-            .is_some_and(|key| msi_product_code(key).is_some())
+            .is_some_and(|key| msi_owns(key, &invoked))
     {
         return Ok(Some(Owner::Msi));
     }
@@ -785,6 +785,24 @@ pub fn refresh_aliases(project: &Project, install_dir: &Path) {
 #[cfg(windows)]
 fn msi_product_code(marker_key: &str) -> Option<String> {
     read_registry_value(marker_key, "ProductCode").filter(|code| is_product_code(code))
+}
+
+/// The MSI's install, unless it records an `InstallDir` and the running copy is
+/// not in it: the marker is per user, and a zip unpacked elsewhere is not the
+/// MSI's to upgrade.
+#[cfg(windows)]
+fn msi_owns(marker_key: &str, exe: &Path) -> bool {
+    msi_product_code(marker_key).is_some()
+        && read_registry_value(marker_key, "InstallDir")
+            .is_none_or(|dir| in_dir(&exe.to_string_lossy(), &dir))
+}
+
+/// Whether `exe` sits directly in `dir`, compared as Windows compares paths.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn in_dir(exe: &str, dir: &str) -> bool {
+    let normal = |p: &str| p.replace('/', "\\").trim_end_matches('\\').to_lowercase();
+    exe.rsplit_once(['\\', '/'])
+        .is_some_and(|(parent, _)| normal(parent) == normal(dir))
 }
 
 /// Hand the upgrade to `msiexec`, so Windows keeps describing what is on disk.
