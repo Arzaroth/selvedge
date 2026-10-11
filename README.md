@@ -106,6 +106,11 @@ and reads a cached check - a GUI that shells out to whoever owns the network -
 takes the crate with `default-features = false` and still gets `frontend` and
 `state`.
 
+`self-update` brings its own TLS provider, aws-lc. A caller already built on
+another one - ring, say, through iroh or quinn - takes `updater` instead, which
+is the same updater with no provider of its own, and installs its provider as
+the process default before calling it.
+
 ## Windows
 
 A project installed by an MSI is upgraded by the MSI, because replacing the

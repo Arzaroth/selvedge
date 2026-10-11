@@ -24,6 +24,10 @@ anything breaking is two repositories.
   directory named after the asset, `<name>-v1.2.3-<target>/`, is read from
   inside it.
 - **Windows on arm64**: `windows-aarch64` in `SHORT_TARGETS`.
+- **`updater`: the updater without a TLS provider.** `self-update` links
+  aws-lc through self_update's rustls feature; `updater` leaves the provider
+  to the caller, who installs one as the process default, so a binary built on
+  ring links one crypto library rather than two.
 
 ### Changed
 
