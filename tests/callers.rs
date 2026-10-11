@@ -169,6 +169,9 @@ fn the_api_both_callers_use(project: &Project) -> anyhow::Result<()> {
     let _ = update::check_cached(project, &cache, true)?;
     let _ = update::version_gt(&status.current, project.version);
 
+    if let Some(owner) = update::owner(project)? {
+        anyhow::bail!("{}", owner.advice(project));
+    }
     let applied = update::apply(project, &cache)?;
     // TokenGauge returns early on this; TailGauge never sets it.
     if applied.installer_launched {

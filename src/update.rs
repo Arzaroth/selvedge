@@ -1175,6 +1175,184 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_distribution_package_is_left_to_its_package_manager() {
+        let dir = scratch("distribution");
+        std::fs::write(dir.join("samplegauge"), "old").unwrap();
+        let mut fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
+        fake.owner = Some(Owner::Distribution(Some("dpkg")));
+        let err = format!(
+            "{:#}",
+            apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap_err()
+        );
+        assert!(err.contains("package manager (dpkg)"), "{err}");
+        assert_eq!(installed(&dir, "samplegauge").as_deref(), Some("old"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_binary_under_usr_belongs_to_the_distribution_and_one_under_usr_local_does_not() {
+        for exe in ["/usr/bin/samplegauge", "/usr/lib/samplegauge/samplegauge"] {
+            assert_eq!(
+                owner_of(Path::new(exe)),
+                Some(Owner::Distribution(None)),
+                "{exe}"
+            );
+        }
+        for exe in [
+            "/usr/local/bin/samplegauge",
+            "/opt/samplegauge/samplegauge",
+            "/home/user/usr/bin/samplegauge",
+            "/usrlocal/bin/samplegauge",
+        ] {
+            assert_eq!(owner_of(Path::new(exe)), None, "{exe}");
+        }
+    }
+
+    #[test]
+    fn a_binary_in_a_store_belongs_to_the_store() {
+        assert_eq!(
+            owner_of(Path::new(
+                "/nix/store/abc-samplegauge-1.0.0/bin/samplegauge"
+            )),
+            Some(Owner::Nix)
+        );
+        assert_eq!(
+            owner_of(Path::new("/snap/samplegauge/42/bin/samplegauge")),
+            Some(Owner::Snap)
+        );
+        assert_eq!(owner_of(Path::new("/home/me/nix/store/samplegauge")), None);
+    }
+
+    #[test]
+    fn the_package_database_is_named_after_the_tool_that_keeps_it() {
+        let root = scratch("pkgdb");
+        assert_eq!(package_database(&root), None);
+        for (path, db) in [
+            ("var/lib/rpm/", "rpm"),
+            ("usr/lib/sysimage/rpm/", "rpm"),
+            ("var/lib/pacman/local/", "pacman"),
+            ("var/lib/dpkg/status", "dpkg"),
+        ] {
+            let _ = std::fs::remove_dir_all(&root);
+            let full = root.join(path);
+            if path.ends_with('/') {
+                std::fs::create_dir_all(&full).unwrap();
+            } else {
+                std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+                std::fs::write(&full, "").unwrap();
+            }
+            assert_eq!(package_database(&root), Some(db), "{path}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The refusal is all a user sees, so each one says how to upgrade.
+    #[test]
+    fn every_refusal_says_how_to_upgrade_instead() {
+        for (owner, hint) in [
+            (Owner::Homebrew, "brew upgrade samplegauge"),
+            (
+                Owner::AppBundle(PathBuf::from("/Applications/SampleGauge.app")),
+                "github.com/Arzaroth/SampleGauge/releases/latest",
+            ),
+            (Owner::Distribution(Some("pacman")), "(pacman)"),
+            (Owner::Distribution(None), "under /usr"),
+            (Owner::Nix, "through Nix"),
+            (Owner::Snap, "snap refresh"),
+            (
+                Owner::Msi,
+                "new .msi from https://github.com/Arzaroth/SampleGauge",
+            ),
+        ] {
+            let advice = owner.advice(&SAMPLE);
+            assert!(advice.starts_with("samplegauge "), "{advice}");
+            assert!(advice.contains(hint), "{advice}");
+        }
+    }
+
+    /// Run from the test binary, which a developer built by hand.
+    #[test]
+    fn a_binary_built_by_hand_is_nobody_elses() {
+        let exe = std::env::current_exe().unwrap();
+        if owner_of(&std::fs::canonicalize(&exe).unwrap()).is_none() {
+            assert_eq!(owner(&SAMPLE).unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn an_archive_that_wraps_its_files_in_a_directory_is_read_from_inside_it() {
+        let dir = scratch("wrapped");
+        let cache = dir.join("update.json");
+        for b in SAMPLE.binaries {
+            std::fs::write(dir.join(b), "old").unwrap();
+        }
+        let wrapper = format!("samplegauge-v9.9.9-{}", arch_target(&SAMPLE).unwrap());
+        let ships: Vec<String> = SAMPLE
+            .binaries
+            .iter()
+            .map(|b| format!("{wrapper}/{b}"))
+            .collect();
+        let ships: Vec<&str> = ships.iter().map(String::as_str).collect();
+        let fake = Fake::new(&dir, "9.9.9", &ships);
+
+        apply_with(&SAMPLE, &cache, &fake).expect("apply");
+
+        for b in SAMPLE.binaries {
+            assert_eq!(
+                installed(&dir, b),
+                Some(format!("{wrapper}/{b} 9.9.9")),
+                "{b} was not replaced"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_staged_root_is_the_wrapper_only_when_the_archive_has_one() {
+        let tmp = scratch("root");
+        let asset = format!("samplegauge-v1.0.0-linux-x86_64{ARCHIVE_SUFFIX}");
+        assert_eq!(staged_root(&tmp, &asset), tmp);
+        let wrapper = tmp.join("samplegauge-v1.0.0-linux-x86_64");
+        std::fs::create_dir_all(&wrapper).unwrap();
+        assert_eq!(staged_root(&tmp, &asset), wrapper);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn a_project_releasing_under_target_triples_finds_its_asset() {
+        const TRIPLES: &[Target] = &[
+            Target {
+                os: "linux",
+                arch: "x86_64",
+                name: "x86_64-unknown-linux-musl",
+            },
+            Target {
+                os: "windows",
+                arch: "aarch64",
+                name: "aarch64-pc-windows-msvc",
+            },
+        ];
+        assert_eq!(
+            target_for(TRIPLES, "linux", "x86_64").unwrap(),
+            "x86_64-unknown-linux-musl"
+        );
+        assert_eq!(
+            target_for(TRIPLES, "windows", "aarch64").unwrap(),
+            "aarch64-pc-windows-msvc"
+        );
+        let err = target_for(TRIPLES, "macos", "aarch64").unwrap_err();
+        assert!(err.to_string().contains("macos aarch64"), "{err}");
+    }
+
+    #[test]
+    fn windows_on_arm_has_a_short_target() {
+        assert_eq!(
+            target_for(crate::SHORT_TARGETS, "windows", "aarch64").unwrap(),
+            "windows-aarch64"
+        );
+    }
+
     /// The panel reads the cache, so an update that does not clear the banner
     /// leaves it offering the version just installed.
     #[test]
