@@ -18,7 +18,7 @@ pub mod frontend;
 pub mod plans;
 pub mod proc;
 pub mod state;
-#[cfg(feature = "self-update")]
+#[cfg(feature = "updater")]
 pub mod update;
 
 pub use frontend::{Frontend, Restart, VersionSource};
@@ -59,6 +59,10 @@ pub struct Project {
     /// The opposite of an alias: an alias is an old name the binary still
     /// answers to, and gets a symlink.
     pub legacy: &'static [&'static str],
+    /// How each platform is spelled in the release's asset names. The running
+    /// one is looked up by OS and architecture, and its `name` must appear in
+    /// exactly one asset.
+    pub targets: &'static [Target],
     /// Windows: the registry key an MSI writes its ProductCode under, if this
     /// project ships one. `None` means every update replaces in place.
     ///
@@ -68,6 +72,51 @@ pub struct Project {
     /// MSI is upgraded by the MSI.
     pub msi_marker_key: Option<&'static str>,
 }
+
+/// One platform as a release names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Target {
+    /// `std::env::consts::OS`.
+    pub os: &'static str,
+    /// `std::env::consts::ARCH`.
+    pub arch: &'static str,
+    /// The substring of the asset name that marks this platform's archive.
+    pub name: &'static str,
+}
+
+/// `<os>-<arch>`, the spelling TailGauge and TokenGauge release under.
+pub const SHORT_TARGETS: &[Target] = &[
+    Target {
+        os: "windows",
+        arch: "x86_64",
+        name: "windows-x86_64",
+    },
+    Target {
+        os: "windows",
+        arch: "aarch64",
+        name: "windows-aarch64",
+    },
+    Target {
+        os: "linux",
+        arch: "x86_64",
+        name: "linux-x86_64",
+    },
+    Target {
+        os: "linux",
+        arch: "aarch64",
+        name: "linux-aarch64",
+    },
+    Target {
+        os: "macos",
+        arch: "x86_64",
+        name: "macos-x86_64",
+    },
+    Target {
+        os: "macos",
+        arch: "aarch64",
+        name: "macos-aarch64",
+    },
+];
 
 impl Project {
     /// The executable the others are named after and the aliases point at.
@@ -116,6 +165,7 @@ pub(crate) const SAMPLE: Project = Project {
     frontends: SAMPLE_FRONTENDS,
     aliases: &["samplegauge-ctl", "samplegauge-watch"],
     legacy: &["samplegauge-update"],
+    targets: SHORT_TARGETS,
     msi_marker_key: Some(r"HKCU\Software\SampleGauge"),
 };
 

@@ -48,6 +48,11 @@ jobs:
       - name: Clippy without the updater
         run: cargo clippy --locked --all-targets --no-default-features -- -D warnings
 
+      # A caller already on another crypto provider takes the updater without
+      # self_update's, and installs its own.
+      - name: Clippy with the updater and no TLS provider
+        run: cargo clippy --locked --all-targets --no-default-features --features updater -- -D warnings
+
       - name: Format
         run: cargo fmt --check
 

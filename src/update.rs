@@ -14,9 +14,9 @@ use anyhow::{Context, Result, anyhow, bail};
 use self_update::backends::github::ReleaseList;
 use self_update::update::{Release, ReleaseAsset};
 
-use crate::Project;
 use crate::frontend::{self, Frontend};
 use crate::state::{self, UpdateStatus};
+use crate::{Project, Target};
 
 /// Six hours: long enough that a panel polling this costs nothing, short
 /// enough that a release lands the same day. The check itself is always live;
@@ -111,24 +111,26 @@ pub fn check_cached(project: &Project, cache_file: &Path, force: bool) -> Result
 /// Substring the release asset name must contain for the running platform.
 ///
 /// Public for the same reason as [`ARCHIVE_SUFFIX`].
-/// Matches the release workflow's `<binary>-<tag>-<target><suffix>` naming.
+/// Matches the release workflow's `<binary>-<tag>-<target><suffix>` naming,
+/// with `<target>` spelled the way the project's [`Project::targets`] say.
 ///
 /// The operating system is part of it, not just the architecture: an x86_64
 /// answer that named only the architecture matched the Linux asset on Windows,
 /// and the update downloaded a tarball of ELF binaries.
-pub fn arch_target() -> Result<&'static str> {
-    target_for(std::env::consts::OS, std::env::consts::ARCH)
+pub fn arch_target(project: &Project) -> Result<&'static str> {
+    target_for(
+        project.targets,
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    )
 }
 
-fn target_for(os: &str, arch: &str) -> Result<&'static str> {
-    match (os, arch) {
-        ("windows", "x86_64") => Ok("windows-x86_64"),
-        ("linux", "x86_64") => Ok("linux-x86_64"),
-        ("linux", "aarch64") => Ok("linux-aarch64"),
-        ("macos", "x86_64") => Ok("macos-x86_64"),
-        ("macos", "aarch64") => Ok("macos-aarch64"),
-        (os, arch) => bail!("unsupported platform: {os} {arch}"),
-    }
+fn target_for(targets: &[Target], os: &str, arch: &str) -> Result<&'static str> {
+    targets
+        .iter()
+        .find(|t| t.os == os && t.arch == arch)
+        .map(|t| t.name)
+        .ok_or_else(|| anyhow!("unsupported platform: {os} {arch}"))
 }
 
 /// The extractor for the asset [`ARCHIVE_SUFFIX`] asks for.
@@ -164,19 +166,23 @@ pub fn version_gt(a: &str, b: &str) -> bool {
 /// to any asset whose name merely carries the suffix. So a release whose
 /// aarch64 build failed hands an aarch64 machine the x86_64 tarball, and the
 /// update succeeds and installs binaries that cannot run. A release that does
-/// not carry this platform is a release to refuse.
+/// not carry this platform is a release to refuse, and so is one where two
+/// archives answer to it, rather than taking whichever the release lists first.
 fn archive_asset(release: &Release, target: &str) -> Option<ReleaseAsset> {
-    release
+    let mut matching = release
         .assets
         .iter()
-        .find(|a| a.name.contains(target) && a.name.ends_with(ARCHIVE_SUFFIX))
-        .cloned()
+        .filter(|a| a.name.contains(target) && a.name.ends_with(ARCHIVE_SUFFIX));
+    match (matching.next(), matching.next()) {
+        (Some(only), None) => Some(only.clone()),
+        _ => None,
+    }
 }
 
 /// The newest release carrying an asset for the running platform.
 fn latest_release(project: &Project) -> Result<Release> {
     let (owner, name) = project.owner_and_name();
-    let target = arch_target()?;
+    let target = arch_target(project)?;
     let releases = ReleaseList::configure()
         .repo_owner(&owner)
         .repo_name(&name)
@@ -288,7 +294,7 @@ pub(crate) trait Source {
     /// The directory the installed binaries live in.
     fn install_dir(&self) -> Result<PathBuf>;
     /// Who installed the running binary, when it is someone other than us.
-    fn owner(&self) -> Result<Option<Owner>> {
+    fn owner(&self, _project: &Project) -> Result<Option<Owner>> {
         Ok(None)
     }
     /// Which payloads this machine already has. An update refreshes those and
@@ -317,15 +323,39 @@ impl Source for Github {
         install_dir()
     }
 
-    /// An error rather than `None` when the path cannot be resolved: the
-    /// unresolved path is the Homebrew symlink, and replacing it would be the
-    /// very thing this guards against.
-    fn owner(&self) -> Result<Option<Owner>> {
-        let invoked = std::env::current_exe().context("cannot resolve current executable")?;
-        let resolved = std::fs::canonicalize(&invoked)
-            .with_context(|| format!("cannot resolve {}", invoked.display()))?;
-        Ok(owner_of_run(&invoked, &resolved))
+    fn owner(&self, project: &Project) -> Result<Option<Owner>> {
+        owner(project)
     }
+}
+
+/// Who installed the running binary, when it is a package manager or an
+/// installer rather than a release archive unpacked by hand. Whatever this
+/// names has to do the upgrade, and [`apply`] refuses to go around it.
+///
+/// An error rather than `None` when the path cannot be resolved: the
+/// unresolved path is the Homebrew symlink, and replacing it would be the
+/// very thing this guards against.
+pub fn owner(project: &Project) -> Result<Option<Owner>> {
+    let invoked = std::env::current_exe().context("cannot resolve current executable")?;
+    let resolved = std::fs::canonicalize(&invoked)
+        .with_context(|| format!("cannot resolve {}", invoked.display()))?;
+    let found = match owner_of_run(&invoked, &resolved) {
+        Some(Owner::Distribution(None)) => {
+            Some(Owner::Distribution(package_database(Path::new("/"))))
+        }
+        found => found,
+    };
+    #[cfg(windows)]
+    if found.is_none()
+        && project
+            .msi_marker_key
+            .is_some_and(|key| msi_product_code(key).is_some())
+    {
+        return Ok(Some(Owner::Msi));
+    }
+    #[cfg(not(windows))]
+    let _ = project;
+    Ok(found)
 }
 
 pub fn apply(project: &Project, cache_file: &Path) -> Result<Applied> {
@@ -347,42 +377,15 @@ pub(crate) fn apply_with(
         });
     }
 
-    // Homebrew records the version it installed and links `bin/` into the
-    // keg of that version. Replacing the files in place leaves `brew upgrade`
-    // comparing against a version that is no longer there.
-    let owner = source.owner()?;
-    if let Some(Owner::Homebrew) = owner {
-        bail!(
-            "{} was installed by Homebrew - run `brew upgrade {}` instead",
-            project.primary(),
-            project.primary()
-        );
+    match source.owner(project)? {
+        // Where an MSI owns what is on disk, it is the thing that upgrades it.
+        #[cfg(windows)]
+        Some(Owner::Msi) => return msi_upgrade(&release),
+        Some(owner) => bail!("{}", owner.advice(project)),
+        None => {}
     }
 
-    // A signed bundle is sealed: a binary swapped inside it breaks the seal,
-    // and macOS then reports the whole app as damaged. It updates by being
-    // replaced, which the release's own download does.
-    if let Some(Owner::AppBundle(bundle)) = owner {
-        bail!(
-            "{} runs from {}, which an update would break - download the new release from https://github.com/{}/releases/latest instead",
-            project.primary(),
-            bundle.display(),
-            project.repo()
-        );
-    }
-
-    // Where an MSI owns what is on disk, it is the thing that upgrades it.
-    // Replacing the files underneath would leave Windows describing a version
-    // that is no longer installed, and a later package comparing against it.
-    #[cfg(windows)]
-    if project
-        .msi_marker_key
-        .is_some_and(|key| msi_product_code(key).is_some())
-    {
-        return msi_upgrade(&release);
-    }
-
-    let target = arch_target()?;
+    let target = arch_target(project)?;
 
     let asset = archive_asset(&release, target)
         .ok_or_else(|| anyhow!("release {} has no {target} asset", release.version))?;
@@ -406,16 +409,13 @@ pub(crate) fn apply_with(
 
     let result = (|| -> Result<Vec<FrontendOutcome>> {
         source.fetch_into(&tmp, &asset)?;
+        let root = staged_root(&tmp, &asset.name);
 
-        // `is_file`, not `exists`: `Move::to_dest` renames without checking
-        // what it is moving, so a directory of that name in the archive would
-        // land on the installed binary's path and become what every alias
-        // points at.
         // `is_file`, not `exists`: the move renames without looking at what it
         // is moving, so a directory of that name in the archive would pass,
         // land on the installed binary's path, and become what the aliases
         // point at.
-        let staged_primary = tmp.join(project.primary());
+        let staged_primary = root.join(project.primary());
         if !staged_primary.is_file() {
             bail!(
                 "release archive has no {} - refusing a partial update",
@@ -424,7 +424,7 @@ pub(crate) fn apply_with(
         }
 
         for binary in project.binaries {
-            let src = tmp.join(binary);
+            let src = root.join(binary);
             // An archive from before a binary existed carries none of it.
             if !src.is_file() {
                 continue;
@@ -450,8 +450,8 @@ pub(crate) fn apply_with(
         // An archive predating the frontend payloads carries none, and every
         // install would fail with the same "payload not found". Say nothing
         // rather than reporting a failure per frontend for an old release.
-        Ok(if present.iter().any(|f| f.payload_in(&tmp).is_some()) {
-            install_frontends_from(&tmp, &present)
+        Ok(if present.iter().any(|f| f.payload_in(&root).is_some()) {
+            install_frontends_from(&root, &present)
         } else {
             Vec::new()
         })
@@ -496,7 +496,7 @@ pub(crate) fn install_frontends_with(
     source: &dyn Source,
 ) -> Result<Vec<FrontendOutcome>> {
     let release = source.named(project, version)?;
-    let asset = archive_asset(&release, arch_target()?)
+    let asset = archive_asset(&release, arch_target(project)?)
         .ok_or_else(|| anyhow!("release {} has no asset for this platform", release.version))?;
 
     let install_dir = source.install_dir()?;
@@ -511,7 +511,8 @@ pub(crate) fn install_frontends_with(
 
     let result = (|| -> Result<Vec<FrontendOutcome>> {
         source.fetch_into(&tmp, &asset)?;
-        if !targets.iter().any(|t| t.payload_in(&tmp).is_some()) {
+        let root = staged_root(&tmp, &asset.name);
+        if !targets.iter().any(|t| t.payload_in(&root).is_some()) {
             bail!(
                 "release v{} ships no frontend payloads",
                 version.trim_start_matches('v')
@@ -519,11 +520,22 @@ pub(crate) fn install_frontends_with(
         }
         // Per-frontend failures are collected rather than propagated, so one
         // unwritable destination does not skip the rest of the set.
-        Ok(install_frontends_from(&tmp, targets))
+        Ok(install_frontends_from(&root, targets))
     })();
 
     let _ = std::fs::remove_dir_all(&tmp);
     result
+}
+
+/// Where the extracted archive keeps its files: the staging directory, or
+/// the one directory named after the asset that some releases wrap them in.
+fn staged_root(tmp: &Path, asset: &str) -> PathBuf {
+    let wrapped = tmp.join(asset.strip_suffix(ARCHIVE_SUFFIX).unwrap_or(asset));
+    if wrapped.is_dir() {
+        wrapped
+    } else {
+        tmp.to_path_buf()
+    }
 }
 
 fn install_dir() -> Result<PathBuf> {
@@ -536,20 +548,94 @@ fn install_dir() -> Result<PathBuf> {
 
 /// An installer other than this one, which an update must not go around.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Owner {
+pub enum Owner {
+    /// Homebrew records the version it installed and links `bin/` into the
+    /// keg of that version. Replacing the files in place leaves `brew
+    /// upgrade` comparing against a version that is no longer there.
     Homebrew,
-    /// The `.app` bundle the binary runs from.
+    /// The `.app` bundle the binary runs from. A signed bundle is sealed: a
+    /// binary swapped inside it breaks the seal, and macOS then reports the
+    /// whole app as damaged.
     AppBundle(PathBuf),
+    /// A distribution's package manager, by the database it keeps when one
+    /// was found. `/usr` outside `/usr/local` is the distribution's, and a
+    /// file replaced there is one its database still lists at the old
+    /// version and checksum.
+    Distribution(Option<&'static str>),
+    /// The Nix store is read-only, and its paths name their contents.
+    Nix,
+    /// A snap is a mounted, read-only image.
+    Snap,
+    /// Windows: the project's MSI, found by its [`Project::msi_marker_key`].
+    Msi,
+}
+
+impl Owner {
+    /// What to tell a user whose update was refused: who owns the binary and
+    /// how to upgrade it instead.
+    pub fn advice(&self, project: &Project) -> String {
+        let name = project.primary();
+        match self {
+            Owner::Homebrew => {
+                format!("{name} was installed by Homebrew - run `brew upgrade {name}` instead")
+            }
+            Owner::AppBundle(bundle) => format!(
+                "{name} runs from {}, which an update would break - download the new release from https://github.com/{}/releases/latest instead",
+                bundle.display(),
+                project.repo()
+            ),
+            Owner::Distribution(Some(db)) => format!(
+                "{name} was installed by the system's package manager ({db}) - upgrade it through that instead"
+            ),
+            Owner::Distribution(None) => format!(
+                "{name} lives under /usr, which the system's package manager owns - upgrade it through that instead"
+            ),
+            Owner::Nix => {
+                format!("{name} comes from the Nix store - upgrade it through Nix instead")
+            }
+            Owner::Snap => format!("{name} is a snap - run `snap refresh` instead"),
+            Owner::Msi => format!(
+                "{name} was installed by its MSI - download the new .msi from https://github.com/{}/releases/latest instead",
+                project.repo()
+            ),
+        }
+    }
 }
 
 /// Homebrew installs every formula into `<prefix>/Cellar/<formula>/<version>`
 /// and symlinks it into `<prefix>/bin`, whatever the prefix, so the resolved
-/// path is what says who owns it.
+/// path is what says who owns it. The same goes for the store paths and the
+/// distribution's `/usr`.
 fn owner_of(exe: &Path) -> Option<Owner> {
     if exe.components().any(|c| c.as_os_str() == "Cellar") {
         return Some(Owner::Homebrew);
     }
-    app_bundle(exe).map(Owner::AppBundle)
+    if let Some(bundle) = app_bundle(exe) {
+        return Some(Owner::AppBundle(bundle));
+    }
+    if exe.starts_with("/nix/store") {
+        return Some(Owner::Nix);
+    }
+    if exe.starts_with("/snap") {
+        return Some(Owner::Snap);
+    }
+    if exe.starts_with("/usr") && !exe.starts_with("/usr/local") {
+        return Some(Owner::Distribution(None));
+    }
+    None
+}
+
+/// The package database under `root`, named after the tool that keeps it.
+fn package_database(root: &Path) -> Option<&'static str> {
+    [
+        ("var/lib/dpkg/status", "dpkg"),
+        ("var/lib/pacman/local", "pacman"),
+        ("usr/lib/sysimage/rpm", "rpm"),
+        ("var/lib/rpm", "rpm"),
+    ]
+    .into_iter()
+    .find(|(path, _)| root.join(path).exists())
+    .map(|(_, db)| db)
 }
 
 /// The update replaces the invoked path, so a symlink inside a bundle that
@@ -806,7 +892,7 @@ mod tests {
                 version: version.to_string(),
                 install_dir: dir.to_path_buf(),
                 ships: ships.iter().map(|s| s.to_string()).collect(),
-                asset_target: arch_target().expect("a supported arch").to_string(),
+                asset_target: arch_target(&SAMPLE).expect("a supported arch").to_string(),
                 owner: None,
             }
         }
@@ -856,7 +942,7 @@ mod tests {
             Ok(self.install_dir.clone())
         }
 
-        fn owner(&self) -> Result<Option<Owner>> {
+        fn owner(&self, _project: &Project) -> Result<Option<Owner>> {
             Ok(self.owner.clone())
         }
 
@@ -1090,6 +1176,205 @@ mod tests {
                 Path::new("/Users/me/.local/bin/samplegauge"),
             ),
             None
+        );
+    }
+
+    #[test]
+    fn a_distribution_package_is_left_to_its_package_manager() {
+        let dir = scratch("distribution");
+        std::fs::write(dir.join("samplegauge"), "old").unwrap();
+        let mut fake = Fake::new(&dir, "9.9.9", &["samplegauge"]);
+        fake.owner = Some(Owner::Distribution(Some("dpkg")));
+        let err = format!(
+            "{:#}",
+            apply_with(&SAMPLE, &dir.join("update.json"), &fake).unwrap_err()
+        );
+        assert!(err.contains("package manager (dpkg)"), "{err}");
+        assert_eq!(installed(&dir, "samplegauge").as_deref(), Some("old"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_binary_under_usr_belongs_to_the_distribution_and_one_under_usr_local_does_not() {
+        for exe in ["/usr/bin/samplegauge", "/usr/lib/samplegauge/samplegauge"] {
+            assert_eq!(
+                owner_of(Path::new(exe)),
+                Some(Owner::Distribution(None)),
+                "{exe}"
+            );
+        }
+        for exe in [
+            "/usr/local/bin/samplegauge",
+            "/opt/samplegauge/samplegauge",
+            "/home/user/usr/bin/samplegauge",
+            "/usrlocal/bin/samplegauge",
+        ] {
+            assert_eq!(owner_of(Path::new(exe)), None, "{exe}");
+        }
+    }
+
+    #[test]
+    fn a_binary_in_a_store_belongs_to_the_store() {
+        assert_eq!(
+            owner_of(Path::new(
+                "/nix/store/abc-samplegauge-1.0.0/bin/samplegauge"
+            )),
+            Some(Owner::Nix)
+        );
+        assert_eq!(
+            owner_of(Path::new("/snap/samplegauge/42/bin/samplegauge")),
+            Some(Owner::Snap)
+        );
+        assert_eq!(owner_of(Path::new("/home/me/nix/store/samplegauge")), None);
+    }
+
+    #[test]
+    fn the_package_database_is_named_after_the_tool_that_keeps_it() {
+        let root = scratch("pkgdb");
+        assert_eq!(package_database(&root), None);
+        for (path, db) in [
+            ("var/lib/rpm/", "rpm"),
+            ("usr/lib/sysimage/rpm/", "rpm"),
+            ("var/lib/pacman/local/", "pacman"),
+            ("var/lib/dpkg/status", "dpkg"),
+        ] {
+            let _ = std::fs::remove_dir_all(&root);
+            let full = root.join(path);
+            if path.ends_with('/') {
+                std::fs::create_dir_all(&full).unwrap();
+            } else {
+                std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+                std::fs::write(&full, "").unwrap();
+            }
+            assert_eq!(package_database(&root), Some(db), "{path}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The refusal is all a user sees, so each one says how to upgrade.
+    #[test]
+    fn every_refusal_says_how_to_upgrade_instead() {
+        for (owner, hint) in [
+            (Owner::Homebrew, "brew upgrade samplegauge"),
+            (
+                Owner::AppBundle(PathBuf::from("/Applications/SampleGauge.app")),
+                "github.com/Arzaroth/SampleGauge/releases/latest",
+            ),
+            (Owner::Distribution(Some("pacman")), "(pacman)"),
+            (Owner::Distribution(None), "under /usr"),
+            (Owner::Nix, "through Nix"),
+            (Owner::Snap, "snap refresh"),
+            (
+                Owner::Msi,
+                "new .msi from https://github.com/Arzaroth/SampleGauge",
+            ),
+        ] {
+            let advice = owner.advice(&SAMPLE);
+            assert!(advice.starts_with("samplegauge "), "{advice}");
+            assert!(advice.contains(hint), "{advice}");
+        }
+    }
+
+    /// Run from the test binary, which a developer built by hand.
+    #[test]
+    fn a_binary_built_by_hand_is_nobody_elses() {
+        let exe = std::env::current_exe().unwrap();
+        if owner_of(&std::fs::canonicalize(&exe).unwrap()).is_none() {
+            assert_eq!(owner(&SAMPLE).unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn an_archive_that_wraps_its_files_in_a_directory_is_read_from_inside_it() {
+        let dir = scratch("wrapped");
+        let cache = dir.join("update.json");
+        for b in SAMPLE.binaries {
+            std::fs::write(dir.join(b), "old").unwrap();
+        }
+        let wrapper = format!("samplegauge-v9.9.9-{}", arch_target(&SAMPLE).unwrap());
+        let ships: Vec<String> = SAMPLE
+            .binaries
+            .iter()
+            .map(|b| format!("{wrapper}/{b}"))
+            .collect();
+        let ships: Vec<&str> = ships.iter().map(String::as_str).collect();
+        let fake = Fake::new(&dir, "9.9.9", &ships);
+
+        apply_with(&SAMPLE, &cache, &fake).expect("apply");
+
+        for b in SAMPLE.binaries {
+            assert_eq!(
+                installed(&dir, b),
+                Some(format!("{wrapper}/{b} 9.9.9")),
+                "{b} was not replaced"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_staged_root_is_the_wrapper_only_when_the_archive_has_one() {
+        let tmp = scratch("root");
+        let asset = format!("samplegauge-v1.0.0-linux-x86_64{ARCHIVE_SUFFIX}");
+        assert_eq!(staged_root(&tmp, &asset), tmp);
+        let wrapper = tmp.join("samplegauge-v1.0.0-linux-x86_64");
+        std::fs::create_dir_all(&wrapper).unwrap();
+        assert_eq!(staged_root(&tmp, &asset), wrapper);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn a_project_releasing_under_target_triples_finds_its_asset() {
+        const TRIPLES: &[Target] = &[
+            Target {
+                os: "linux",
+                arch: "x86_64",
+                name: "x86_64-unknown-linux-musl",
+            },
+            Target {
+                os: "windows",
+                arch: "aarch64",
+                name: "aarch64-pc-windows-msvc",
+            },
+        ];
+        assert_eq!(
+            target_for(TRIPLES, "linux", "x86_64").unwrap(),
+            "x86_64-unknown-linux-musl"
+        );
+        assert_eq!(
+            target_for(TRIPLES, "windows", "aarch64").unwrap(),
+            "aarch64-pc-windows-msvc"
+        );
+        let err = target_for(TRIPLES, "macos", "aarch64").unwrap_err();
+        assert!(err.to_string().contains("macos aarch64"), "{err}");
+    }
+
+    #[test]
+    fn a_target_two_archives_answer_to_is_no_asset_at_all() {
+        let asset = |name: &str| ReleaseAsset {
+            name: format!("{name}{ARCHIVE_SUFFIX}"),
+            download_url: "https://example.invalid/asset".into(),
+        };
+        let mut release = Release {
+            name: "v1.0.0".into(),
+            version: "1.0.0".into(),
+            date: "2026-01-01".into(),
+            body: None,
+            assets: vec![asset("p-v1.0.0-x86_64-unknown-linux-gnu")],
+        };
+        let target = "x86_64-unknown-linux-gnu";
+        assert!(archive_asset(&release, target).is_some());
+        release
+            .assets
+            .push(asset("p-v1.0.0-x86_64-unknown-linux-gnux32"));
+        assert!(archive_asset(&release, target).is_none());
+    }
+
+    #[test]
+    fn windows_on_arm_has_a_short_target() {
+        assert_eq!(
+            target_for(crate::SHORT_TARGETS, "windows", "aarch64").unwrap(),
+            "windows-aarch64"
         );
     }
 
@@ -1543,7 +1828,7 @@ mod tests {
     /// the Linux asset and got one.
     #[test]
     fn the_platform_substring_names_the_running_os() {
-        let target = arch_target().expect("this test builds on supported arches only");
+        let target = arch_target(&SAMPLE).expect("this test builds on supported arches only");
         let os = std::env::consts::OS;
         assert!(
             target.starts_with(os),
@@ -1555,21 +1840,12 @@ mod tests {
     /// whichever the release happens to list first.
     #[test]
     fn every_platform_asks_for_an_asset_no_other_platform_matches() {
-        let targets: Vec<_> = [
-            ("windows", "x86_64"),
-            ("linux", "x86_64"),
-            ("linux", "aarch64"),
-            ("macos", "x86_64"),
-            ("macos", "aarch64"),
-        ]
-        .iter()
-        .map(|(os, arch)| target_for(os, arch).unwrap())
-        .collect();
+        let targets: Vec<_> = SAMPLE.targets.iter().map(|t| t.name).collect();
         for a in &targets {
             for b in &targets {
                 assert!(a == b || !b.contains(a), "{a} matches {b}'s asset");
             }
         }
-        assert!(target_for("freebsd", "x86_64").is_err());
+        assert!(target_for(SAMPLE.targets, "freebsd", "x86_64").is_err());
     }
 }

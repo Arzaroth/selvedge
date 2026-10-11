@@ -8,7 +8,7 @@
 //!
 //! Most of what this file checks, it checks by compiling.
 
-#[cfg(feature = "self-update")]
+#[cfg(feature = "updater")]
 use selvedge::update;
 use selvedge::{Frontend, Project, Restart, VersionSource, frontend, state};
 
@@ -61,6 +61,7 @@ const TAILGAUGE: Project = Project {
         "tailgauge-copy",
     ],
     legacy: &["tailgauge-update"],
+    targets: selvedge::SHORT_TARGETS,
     msi_marker_key: None,
 };
 
@@ -90,6 +91,7 @@ const TOKENGAUGE: Project = Project {
     // is an alias and not something to take away.
     aliases: &["tokengauge-waybar"],
     legacy: &[],
+    targets: selvedge::SHORT_TARGETS,
     msi_marker_key: Some(r"HKCU\Software\TokenGauge"),
 };
 
@@ -159,7 +161,7 @@ fn every_frontend_id_resolves_for_the_project_that_ships_it() {
 
 /// Nothing here runs: it exists so the call sites both projects have today
 /// fail to compile if this crate's surface moves under them.
-#[cfg(feature = "self-update")]
+#[cfg(feature = "updater")]
 #[allow(dead_code)]
 fn the_api_both_callers_use(project: &Project) -> anyhow::Result<()> {
     let cache = state::update_cache_file(project);
@@ -167,6 +169,9 @@ fn the_api_both_callers_use(project: &Project) -> anyhow::Result<()> {
     let _ = update::check_cached(project, &cache, true)?;
     let _ = update::version_gt(&status.current, project.version);
 
+    if let Some(owner) = update::owner(project)? {
+        anyhow::bail!("{}", owner.advice(project));
+    }
     let applied = update::apply(project, &cache)?;
     // TokenGauge returns early on this; TailGauge never sets it.
     if applied.installer_launched {
@@ -182,6 +187,6 @@ fn the_api_both_callers_use(project: &Project) -> anyhow::Result<()> {
     if let Some(f) = frontend::find(project, "gnome") {
         let _ = (f.installed_version(), f.restart.needs_session_restart());
     }
-    let _ = (update::ARCHIVE_SUFFIX, update::arch_target()?);
+    let _ = (update::ARCHIVE_SUFFIX, update::arch_target(project)?);
     Ok(())
 }
