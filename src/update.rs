@@ -408,16 +408,13 @@ pub(crate) fn apply_with(
 
     let result = (|| -> Result<Vec<FrontendOutcome>> {
         source.fetch_into(&tmp, &asset)?;
+        let root = staged_root(&tmp, &asset.name);
 
-        // `is_file`, not `exists`: `Move::to_dest` renames without checking
-        // what it is moving, so a directory of that name in the archive would
-        // land on the installed binary's path and become what every alias
-        // points at.
         // `is_file`, not `exists`: the move renames without looking at what it
         // is moving, so a directory of that name in the archive would pass,
         // land on the installed binary's path, and become what the aliases
         // point at.
-        let staged_primary = tmp.join(project.primary());
+        let staged_primary = root.join(project.primary());
         if !staged_primary.is_file() {
             bail!(
                 "release archive has no {} - refusing a partial update",
@@ -426,7 +423,7 @@ pub(crate) fn apply_with(
         }
 
         for binary in project.binaries {
-            let src = tmp.join(binary);
+            let src = root.join(binary);
             // An archive from before a binary existed carries none of it.
             if !src.is_file() {
                 continue;
@@ -452,8 +449,8 @@ pub(crate) fn apply_with(
         // An archive predating the frontend payloads carries none, and every
         // install would fail with the same "payload not found". Say nothing
         // rather than reporting a failure per frontend for an old release.
-        Ok(if present.iter().any(|f| f.payload_in(&tmp).is_some()) {
-            install_frontends_from(&tmp, &present)
+        Ok(if present.iter().any(|f| f.payload_in(&root).is_some()) {
+            install_frontends_from(&root, &present)
         } else {
             Vec::new()
         })
@@ -513,7 +510,8 @@ pub(crate) fn install_frontends_with(
 
     let result = (|| -> Result<Vec<FrontendOutcome>> {
         source.fetch_into(&tmp, &asset)?;
-        if !targets.iter().any(|t| t.payload_in(&tmp).is_some()) {
+        let root = staged_root(&tmp, &asset.name);
+        if !targets.iter().any(|t| t.payload_in(&root).is_some()) {
             bail!(
                 "release v{} ships no frontend payloads",
                 version.trim_start_matches('v')
@@ -521,11 +519,22 @@ pub(crate) fn install_frontends_with(
         }
         // Per-frontend failures are collected rather than propagated, so one
         // unwritable destination does not skip the rest of the set.
-        Ok(install_frontends_from(&tmp, targets))
+        Ok(install_frontends_from(&root, targets))
     })();
 
     let _ = std::fs::remove_dir_all(&tmp);
     result
+}
+
+/// Where the extracted archive keeps its files: the staging directory, or
+/// the one directory named after the asset that some releases wrap them in.
+fn staged_root(tmp: &Path, asset: &str) -> PathBuf {
+    let wrapped = tmp.join(asset.strip_suffix(ARCHIVE_SUFFIX).unwrap_or(asset));
+    if wrapped.is_dir() {
+        wrapped
+    } else {
+        tmp.to_path_buf()
+    }
 }
 
 fn install_dir() -> Result<PathBuf> {
