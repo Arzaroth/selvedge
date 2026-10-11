@@ -1350,6 +1350,27 @@ mod tests {
     }
 
     #[test]
+    fn a_target_two_archives_answer_to_is_no_asset_at_all() {
+        let asset = |name: &str| ReleaseAsset {
+            name: format!("{name}{ARCHIVE_SUFFIX}"),
+            download_url: "https://example.invalid/asset".into(),
+        };
+        let mut release = Release {
+            name: "v1.0.0".into(),
+            version: "1.0.0".into(),
+            date: "2026-01-01".into(),
+            body: None,
+            assets: vec![asset("p-v1.0.0-x86_64-unknown-linux-gnu")],
+        };
+        let target = "x86_64-unknown-linux-gnu";
+        assert!(archive_asset(&release, target).is_some());
+        release
+            .assets
+            .push(asset("p-v1.0.0-x86_64-unknown-linux-gnux32"));
+        assert!(archive_asset(&release, target).is_none());
+    }
+
+    #[test]
     fn windows_on_arm_has_a_short_target() {
         assert_eq!(
             target_for(crate::SHORT_TARGETS, "windows", "aarch64").unwrap(),
