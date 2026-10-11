@@ -10,6 +10,29 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Added
+
+- **Who owns the binary, before anything is fetched.** `update::owner`
+  returns the `Owner` an update must not go around, now public, and
+  `Owner::advice` says how to upgrade instead. Besides Homebrew and an app
+  bundle it knows a distribution's package (under `/usr` outside
+  `/usr/local`, named by the dpkg, rpm or pacman database it finds), the Nix
+  store, a snap, and the project's MSI. `apply` refuses the new ones too:
+  replacing a file a package database lists leaves it describing a version
+  that is gone.
+- **Archives that wrap their files in a directory.** An archive holding one
+  directory named after the asset, `<name>-v1.2.3-<target>/`, is read from
+  inside it.
+- **Windows on arm64**: `windows-aarch64` in `SHORT_TARGETS`.
+
+### Changed
+
+- **A project names its own platforms.** `Project` gains `targets`, how each
+  platform is spelled in the release's asset names, so a project releasing
+  under Rust target triples can update too. Both callers set
+  `targets: selvedge::SHORT_TARGETS` to keep `<os>-<arch>`.
+  `update::arch_target` takes the project.
+
 ## [0.6.0] - 2026-10-10
 
 ### Added

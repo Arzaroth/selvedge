@@ -32,6 +32,9 @@ const TAILGAUGE: selvedge::Project = selvedge::Project {
     aliases: ALIASES,
     // Old names it does not, removed rather than left to answer.
     legacy: &["tailgauge-update"],
+    // How each platform is spelled in the asset names: `linux-x86_64` here,
+    // or a table of Rust target triples for a project releasing under those.
+    targets: selvedge::SHORT_TARGETS,
     // Windows only: where an MSI records its ProductCode. None means every
     // update replaces in place.
     msi_marker_key: None,
@@ -47,6 +50,20 @@ Then:
 let status = selvedge::update::check_cached(&TAILGAUGE, &cache, force)?;
 let applied = selvedge::update::apply(&TAILGAUGE, &cache)?;
 ```
+
+A release archive may hold its files at the top or inside one directory named
+after the asset (`tailgauge-v1.2.3-linux-x86_64/`); either is read.
+
+## Who owns the copy on disk
+
+An update replaces the files beside the running binary, which is only right
+when nobody else keeps a record of them. `update::owner` says who does,
+without fetching anything: Homebrew, a macOS app bundle, a distribution's
+package manager (anything under `/usr` outside `/usr/local`, named after the
+package database it finds), the Nix store, a snap, or the project's MSI.
+`apply` refuses all of them with `Owner::advice`, which says how to upgrade
+instead, except the MSI, which it hands the upgrade to. A caller that wants to
+refuse the MSI too, or to refuse before reaching GitHub, asks `owner` first.
 
 ## Several plans in one meter
 
