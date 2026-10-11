@@ -10,6 +10,8 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-11
+
 ### Fixed
 
 - **A zip that lists its directories unpacks.** self_update's extractor
