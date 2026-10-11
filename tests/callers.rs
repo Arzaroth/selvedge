@@ -8,7 +8,7 @@
 //!
 //! Most of what this file checks, it checks by compiling.
 
-#[cfg(feature = "self-update")]
+#[cfg(feature = "updater")]
 use selvedge::update;
 use selvedge::{Frontend, Project, Restart, VersionSource, frontend, state};
 
@@ -161,7 +161,7 @@ fn every_frontend_id_resolves_for_the_project_that_ships_it() {
 
 /// Nothing here runs: it exists so the call sites both projects have today
 /// fail to compile if this crate's surface moves under them.
-#[cfg(feature = "self-update")]
+#[cfg(feature = "updater")]
 #[allow(dead_code)]
 fn the_api_both_callers_use(project: &Project) -> anyhow::Result<()> {
     let cache = state::update_cache_file(project);
