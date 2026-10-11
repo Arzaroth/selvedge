@@ -61,6 +61,7 @@ const TAILGAUGE: Project = Project {
         "tailgauge-copy",
     ],
     legacy: &["tailgauge-update"],
+    targets: selvedge::SHORT_TARGETS,
     msi_marker_key: None,
 };
 
@@ -90,6 +91,7 @@ const TOKENGAUGE: Project = Project {
     // is an alias and not something to take away.
     aliases: &["tokengauge-waybar"],
     legacy: &[],
+    targets: selvedge::SHORT_TARGETS,
     msi_marker_key: Some(r"HKCU\Software\TokenGauge"),
 };
 
@@ -182,6 +184,6 @@ fn the_api_both_callers_use(project: &Project) -> anyhow::Result<()> {
     if let Some(f) = frontend::find(project, "gnome") {
         let _ = (f.installed_version(), f.restart.needs_session_restart());
     }
-    let _ = (update::ARCHIVE_SUFFIX, update::arch_target()?);
+    let _ = (update::ARCHIVE_SUFFIX, update::arch_target(project)?);
     Ok(())
 }

@@ -14,9 +14,9 @@ use anyhow::{Context, Result, anyhow, bail};
 use self_update::backends::github::ReleaseList;
 use self_update::update::{Release, ReleaseAsset};
 
-use crate::Project;
 use crate::frontend::{self, Frontend};
 use crate::state::{self, UpdateStatus};
+use crate::{Project, Target};
 
 /// Six hours: long enough that a panel polling this costs nothing, short
 /// enough that a release lands the same day. The check itself is always live;
@@ -111,24 +111,26 @@ pub fn check_cached(project: &Project, cache_file: &Path, force: bool) -> Result
 /// Substring the release asset name must contain for the running platform.
 ///
 /// Public for the same reason as [`ARCHIVE_SUFFIX`].
-/// Matches the release workflow's `<binary>-<tag>-<target><suffix>` naming.
+/// Matches the release workflow's `<binary>-<tag>-<target><suffix>` naming,
+/// with `<target>` spelled the way the project's [`Project::targets`] say.
 ///
 /// The operating system is part of it, not just the architecture: an x86_64
 /// answer that named only the architecture matched the Linux asset on Windows,
 /// and the update downloaded a tarball of ELF binaries.
-pub fn arch_target() -> Result<&'static str> {
-    target_for(std::env::consts::OS, std::env::consts::ARCH)
+pub fn arch_target(project: &Project) -> Result<&'static str> {
+    target_for(
+        project.targets,
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    )
 }
 
-fn target_for(os: &str, arch: &str) -> Result<&'static str> {
-    match (os, arch) {
-        ("windows", "x86_64") => Ok("windows-x86_64"),
-        ("linux", "x86_64") => Ok("linux-x86_64"),
-        ("linux", "aarch64") => Ok("linux-aarch64"),
-        ("macos", "x86_64") => Ok("macos-x86_64"),
-        ("macos", "aarch64") => Ok("macos-aarch64"),
-        (os, arch) => bail!("unsupported platform: {os} {arch}"),
-    }
+fn target_for(targets: &[Target], os: &str, arch: &str) -> Result<&'static str> {
+    targets
+        .iter()
+        .find(|t| t.os == os && t.arch == arch)
+        .map(|t| t.name)
+        .ok_or_else(|| anyhow!("unsupported platform: {os} {arch}"))
 }
 
 /// The extractor for the asset [`ARCHIVE_SUFFIX`] asks for.
@@ -176,7 +178,7 @@ fn archive_asset(release: &Release, target: &str) -> Option<ReleaseAsset> {
 /// The newest release carrying an asset for the running platform.
 fn latest_release(project: &Project) -> Result<Release> {
     let (owner, name) = project.owner_and_name();
-    let target = arch_target()?;
+    let target = arch_target(project)?;
     let releases = ReleaseList::configure()
         .repo_owner(&owner)
         .repo_name(&name)
@@ -382,7 +384,7 @@ pub(crate) fn apply_with(
         return msi_upgrade(&release);
     }
 
-    let target = arch_target()?;
+    let target = arch_target(project)?;
 
     let asset = archive_asset(&release, target)
         .ok_or_else(|| anyhow!("release {} has no {target} asset", release.version))?;
@@ -496,7 +498,7 @@ pub(crate) fn install_frontends_with(
     source: &dyn Source,
 ) -> Result<Vec<FrontendOutcome>> {
     let release = source.named(project, version)?;
-    let asset = archive_asset(&release, arch_target()?)
+    let asset = archive_asset(&release, arch_target(project)?)
         .ok_or_else(|| anyhow!("release {} has no asset for this platform", release.version))?;
 
     let install_dir = source.install_dir()?;
@@ -806,7 +808,7 @@ mod tests {
                 version: version.to_string(),
                 install_dir: dir.to_path_buf(),
                 ships: ships.iter().map(|s| s.to_string()).collect(),
-                asset_target: arch_target().expect("a supported arch").to_string(),
+                asset_target: arch_target(&SAMPLE).expect("a supported arch").to_string(),
                 owner: None,
             }
         }
@@ -1543,7 +1545,7 @@ mod tests {
     /// the Linux asset and got one.
     #[test]
     fn the_platform_substring_names_the_running_os() {
-        let target = arch_target().expect("this test builds on supported arches only");
+        let target = arch_target(&SAMPLE).expect("this test builds on supported arches only");
         let os = std::env::consts::OS;
         assert!(
             target.starts_with(os),
@@ -1555,21 +1557,12 @@ mod tests {
     /// whichever the release happens to list first.
     #[test]
     fn every_platform_asks_for_an_asset_no_other_platform_matches() {
-        let targets: Vec<_> = [
-            ("windows", "x86_64"),
-            ("linux", "x86_64"),
-            ("linux", "aarch64"),
-            ("macos", "x86_64"),
-            ("macos", "aarch64"),
-        ]
-        .iter()
-        .map(|(os, arch)| target_for(os, arch).unwrap())
-        .collect();
+        let targets: Vec<_> = SAMPLE.targets.iter().map(|t| t.name).collect();
         for a in &targets {
             for b in &targets {
                 assert!(a == b || !b.contains(a), "{a} matches {b}'s asset");
             }
         }
-        assert!(target_for("freebsd", "x86_64").is_err());
+        assert!(target_for(SAMPLE.targets, "freebsd", "x86_64").is_err());
     }
 }
