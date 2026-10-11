@@ -290,7 +290,7 @@ pub(crate) trait Source {
     /// The directory the installed binaries live in.
     fn install_dir(&self) -> Result<PathBuf>;
     /// Who installed the running binary, when it is someone other than us.
-    fn owner(&self) -> Result<Option<Owner>> {
+    fn owner(&self, _project: &Project) -> Result<Option<Owner>> {
         Ok(None)
     }
     /// Which payloads this machine already has. An update refreshes those and
@@ -319,15 +319,39 @@ impl Source for Github {
         install_dir()
     }
 
-    /// An error rather than `None` when the path cannot be resolved: the
-    /// unresolved path is the Homebrew symlink, and replacing it would be the
-    /// very thing this guards against.
-    fn owner(&self) -> Result<Option<Owner>> {
-        let invoked = std::env::current_exe().context("cannot resolve current executable")?;
-        let resolved = std::fs::canonicalize(&invoked)
-            .with_context(|| format!("cannot resolve {}", invoked.display()))?;
-        Ok(owner_of_run(&invoked, &resolved))
+    fn owner(&self, project: &Project) -> Result<Option<Owner>> {
+        owner(project)
     }
+}
+
+/// Who installed the running binary, when it is a package manager or an
+/// installer rather than a release archive unpacked by hand. Whatever this
+/// names has to do the upgrade, and [`apply`] refuses to go around it.
+///
+/// An error rather than `None` when the path cannot be resolved: the
+/// unresolved path is the Homebrew symlink, and replacing it would be the
+/// very thing this guards against.
+pub fn owner(project: &Project) -> Result<Option<Owner>> {
+    let invoked = std::env::current_exe().context("cannot resolve current executable")?;
+    let resolved = std::fs::canonicalize(&invoked)
+        .with_context(|| format!("cannot resolve {}", invoked.display()))?;
+    let found = match owner_of_run(&invoked, &resolved) {
+        Some(Owner::Distribution(None)) => {
+            Some(Owner::Distribution(package_database(Path::new("/"))))
+        }
+        found => found,
+    };
+    #[cfg(windows)]
+    if found.is_none()
+        && project
+            .msi_marker_key
+            .is_some_and(|key| msi_product_code(key).is_some())
+    {
+        return Ok(Some(Owner::Msi));
+    }
+    #[cfg(not(windows))]
+    let _ = project;
+    Ok(found)
 }
 
 pub fn apply(project: &Project, cache_file: &Path) -> Result<Applied> {
@@ -349,39 +373,12 @@ pub(crate) fn apply_with(
         });
     }
 
-    // Homebrew records the version it installed and links `bin/` into the
-    // keg of that version. Replacing the files in place leaves `brew upgrade`
-    // comparing against a version that is no longer there.
-    let owner = source.owner()?;
-    if let Some(Owner::Homebrew) = owner {
-        bail!(
-            "{} was installed by Homebrew - run `brew upgrade {}` instead",
-            project.primary(),
-            project.primary()
-        );
-    }
-
-    // A signed bundle is sealed: a binary swapped inside it breaks the seal,
-    // and macOS then reports the whole app as damaged. It updates by being
-    // replaced, which the release's own download does.
-    if let Some(Owner::AppBundle(bundle)) = owner {
-        bail!(
-            "{} runs from {}, which an update would break - download the new release from https://github.com/{}/releases/latest instead",
-            project.primary(),
-            bundle.display(),
-            project.repo()
-        );
-    }
-
-    // Where an MSI owns what is on disk, it is the thing that upgrades it.
-    // Replacing the files underneath would leave Windows describing a version
-    // that is no longer installed, and a later package comparing against it.
-    #[cfg(windows)]
-    if project
-        .msi_marker_key
-        .is_some_and(|key| msi_product_code(key).is_some())
-    {
-        return msi_upgrade(&release);
+    match source.owner(project)? {
+        // Where an MSI owns what is on disk, it is the thing that upgrades it.
+        #[cfg(windows)]
+        Some(Owner::Msi) => return msi_upgrade(&release),
+        Some(owner) => bail!("{}", owner.advice(project)),
+        None => {}
     }
 
     let target = arch_target(project)?;
@@ -547,20 +544,94 @@ fn install_dir() -> Result<PathBuf> {
 
 /// An installer other than this one, which an update must not go around.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Owner {
+pub enum Owner {
+    /// Homebrew records the version it installed and links `bin/` into the
+    /// keg of that version. Replacing the files in place leaves `brew
+    /// upgrade` comparing against a version that is no longer there.
     Homebrew,
-    /// The `.app` bundle the binary runs from.
+    /// The `.app` bundle the binary runs from. A signed bundle is sealed: a
+    /// binary swapped inside it breaks the seal, and macOS then reports the
+    /// whole app as damaged.
     AppBundle(PathBuf),
+    /// A distribution's package manager, by the database it keeps when one
+    /// was found. `/usr` outside `/usr/local` is the distribution's, and a
+    /// file replaced there is one its database still lists at the old
+    /// version and checksum.
+    Distribution(Option<&'static str>),
+    /// The Nix store is read-only, and its paths name their contents.
+    Nix,
+    /// A snap is a mounted, read-only image.
+    Snap,
+    /// Windows: the project's MSI, found by its [`Project::msi_marker_key`].
+    Msi,
+}
+
+impl Owner {
+    /// What to tell a user whose update was refused: who owns the binary and
+    /// how to upgrade it instead.
+    pub fn advice(&self, project: &Project) -> String {
+        let name = project.primary();
+        match self {
+            Owner::Homebrew => {
+                format!("{name} was installed by Homebrew - run `brew upgrade {name}` instead")
+            }
+            Owner::AppBundle(bundle) => format!(
+                "{name} runs from {}, which an update would break - download the new release from https://github.com/{}/releases/latest instead",
+                bundle.display(),
+                project.repo()
+            ),
+            Owner::Distribution(Some(db)) => format!(
+                "{name} was installed by the system's package manager ({db}) - upgrade it through that instead"
+            ),
+            Owner::Distribution(None) => format!(
+                "{name} lives under /usr, which the system's package manager owns - upgrade it through that instead"
+            ),
+            Owner::Nix => {
+                format!("{name} comes from the Nix store - upgrade it through Nix instead")
+            }
+            Owner::Snap => format!("{name} is a snap - run `snap refresh` instead"),
+            Owner::Msi => format!(
+                "{name} was installed by its MSI - download the new .msi from https://github.com/{}/releases/latest instead",
+                project.repo()
+            ),
+        }
+    }
 }
 
 /// Homebrew installs every formula into `<prefix>/Cellar/<formula>/<version>`
 /// and symlinks it into `<prefix>/bin`, whatever the prefix, so the resolved
-/// path is what says who owns it.
+/// path is what says who owns it. The same goes for the store paths and the
+/// distribution's `/usr`.
 fn owner_of(exe: &Path) -> Option<Owner> {
     if exe.components().any(|c| c.as_os_str() == "Cellar") {
         return Some(Owner::Homebrew);
     }
-    app_bundle(exe).map(Owner::AppBundle)
+    if let Some(bundle) = app_bundle(exe) {
+        return Some(Owner::AppBundle(bundle));
+    }
+    if exe.starts_with("/nix/store") {
+        return Some(Owner::Nix);
+    }
+    if exe.starts_with("/snap") {
+        return Some(Owner::Snap);
+    }
+    if exe.starts_with("/usr") && !exe.starts_with("/usr/local") {
+        return Some(Owner::Distribution(None));
+    }
+    None
+}
+
+/// The package database under `root`, named after the tool that keeps it.
+fn package_database(root: &Path) -> Option<&'static str> {
+    [
+        ("var/lib/dpkg/status", "dpkg"),
+        ("var/lib/pacman/local", "pacman"),
+        ("usr/lib/sysimage/rpm", "rpm"),
+        ("var/lib/rpm", "rpm"),
+    ]
+    .into_iter()
+    .find(|(path, _)| root.join(path).exists())
+    .map(|(_, db)| db)
 }
 
 /// The update replaces the invoked path, so a symlink inside a bundle that
@@ -867,7 +938,7 @@ mod tests {
             Ok(self.install_dir.clone())
         }
 
-        fn owner(&self) -> Result<Option<Owner>> {
+        fn owner(&self, _project: &Project) -> Result<Option<Owner>> {
             Ok(self.owner.clone())
         }
 
