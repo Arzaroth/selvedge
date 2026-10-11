@@ -166,13 +166,17 @@ pub fn version_gt(a: &str, b: &str) -> bool {
 /// to any asset whose name merely carries the suffix. So a release whose
 /// aarch64 build failed hands an aarch64 machine the x86_64 tarball, and the
 /// update succeeds and installs binaries that cannot run. A release that does
-/// not carry this platform is a release to refuse.
+/// not carry this platform is a release to refuse, and so is one where two
+/// archives answer to it, rather than taking whichever the release lists first.
 fn archive_asset(release: &Release, target: &str) -> Option<ReleaseAsset> {
-    release
+    let mut matching = release
         .assets
         .iter()
-        .find(|a| a.name.contains(target) && a.name.ends_with(ARCHIVE_SUFFIX))
-        .cloned()
+        .filter(|a| a.name.contains(target) && a.name.ends_with(ARCHIVE_SUFFIX));
+    match (matching.next(), matching.next()) {
+        (Some(only), None) => Some(only.clone()),
+        _ => None,
+    }
 }
 
 /// The newest release carrying an asset for the running platform.
