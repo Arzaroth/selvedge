@@ -115,7 +115,9 @@ the process default before calling it.
 
 A project installed by an MSI is upgraded by the MSI, because replacing the
 files underneath it would leave Windows describing a version that is no longer
-installed. `apply` returns with `installer_launched` set and nothing replaced,
+installed. The installer records its ProductCode under `msi_marker_key`; if it
+also records `InstallDir` there, only a copy running from that directory
+counts as the MSI's. `apply` returns with `installer_launched` set and nothing replaced,
 and the caller must exit promptly: one of the files `msiexec` is about to
 replace is the executable running the code.
 
