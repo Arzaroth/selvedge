@@ -349,7 +349,7 @@ pub fn owner(project: &Project) -> Result<Option<Owner>> {
     if found.is_none()
         && project
             .msi_marker_key
-            .is_some_and(|key| msi_product_code(key).is_some())
+            .is_some_and(|key| msi_owns(key, &invoked))
     {
         return Ok(Some(Owner::Msi));
     }
@@ -411,12 +411,12 @@ pub(crate) fn apply_with(
         source.fetch_into(&tmp, &asset)?;
         let root = staged_root(&tmp, &asset.name);
 
-        // `is_file`, not `exists`: the move renames without looking at what it
-        // is moving, so a directory of that name in the archive would pass,
-        // land on the installed binary's path, and become what the aliases
-        // point at.
+        // A regular file, not anything that exists: the move renames without
+        // looking at what it is moving, so a directory of that name would land
+        // on the installed binary's path, and a symlink would be installed as
+        // one and its target made executable.
         let staged_primary = root.join(project.primary());
-        if !staged_primary.is_file() {
+        if !regular_file(&staged_primary) {
             bail!(
                 "release archive has no {} - refusing a partial update",
                 project.primary()
@@ -426,7 +426,7 @@ pub(crate) fn apply_with(
         for binary in project.binaries {
             let src = root.join(binary);
             // An archive from before a binary existed carries none of it.
-            if !src.is_file() {
+            if !regular_file(&src) {
                 continue;
             }
             let dest = install_dir.join(binary);
@@ -525,6 +525,10 @@ pub(crate) fn install_frontends_with(
 
     let _ = std::fs::remove_dir_all(&tmp);
     result
+}
+
+fn regular_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file())
 }
 
 /// Where the extracted archive keeps its files: the staging directory, or
@@ -673,10 +677,41 @@ fn fetch_into(tmp: &Path, name: &str, url: &str) -> Result<()> {
         .download_to(file)
         .context("download failed")?;
 
-    self_update::Extract::from_source(&archive)
-        .archive(archive_kind())
-        .extract_into(tmp)
-        .context("extract failed")
+    match archive_kind() {
+        self_update::ArchiveKind::Zip => extract_zip(&archive, tmp),
+        kind => self_update::Extract::from_source(&archive)
+            .archive(kind)
+            .extract_into(tmp)
+            .map_err(Into::into),
+    }
+    .context("extract failed")
+}
+
+/// self_update's zip extractor creates a file for every entry, so a zip that
+/// lists its directories, as 7-Zip writes them, fails on the first one; and it
+/// joins entry names unchecked, so `..\` lands outside the staging directory.
+fn extract_zip(archive: &Path, into: &Path) -> Result<()> {
+    let file = std::fs::File::open(archive)
+        .with_context(|| format!("cannot open {}", archive.display()))?;
+    let mut zip = zip::ZipArchive::new(file)?;
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i)?;
+        let path = entry
+            .enclosed_name()
+            .map(|name| into.join(name))
+            .ok_or_else(|| anyhow!("{} would land outside the archive", entry.name()))?;
+        if entry.is_dir() {
+            std::fs::create_dir_all(&path)?;
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut out = std::fs::File::create(&path)
+            .with_context(|| format!("cannot create {}", path.display()))?;
+        std::io::copy(&mut entry, &mut out)?;
+    }
+    Ok(())
 }
 
 fn install_frontends_from(
@@ -750,6 +785,24 @@ pub fn refresh_aliases(project: &Project, install_dir: &Path) {
 #[cfg(windows)]
 fn msi_product_code(marker_key: &str) -> Option<String> {
     read_registry_value(marker_key, "ProductCode").filter(|code| is_product_code(code))
+}
+
+/// The MSI's install, unless it records an `InstallDir` and the running copy is
+/// not in it: the marker is per user, and a zip unpacked elsewhere is not the
+/// MSI's to upgrade.
+#[cfg(windows)]
+fn msi_owns(marker_key: &str, exe: &Path) -> bool {
+    msi_product_code(marker_key).is_some()
+        && read_registry_value(marker_key, "InstallDir")
+            .is_none_or(|dir| in_dir(&exe.to_string_lossy(), &dir))
+}
+
+/// Whether `exe` sits directly in `dir`, compared as Windows compares paths.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn in_dir(exe: &str, dir: &str) -> bool {
+    let normal = |p: &str| p.replace('/', "\\").trim_end_matches('\\').to_lowercase();
+    exe.rsplit_once(['\\', '/'])
+        .is_some_and(|(parent, _)| normal(parent) == normal(dir))
 }
 
 /// Hand the upgrade to `msiexec`, so Windows keeps describing what is on disk.
@@ -1368,6 +1421,90 @@ mod tests {
             .assets
             .push(asset("p-v1.0.0-x86_64-unknown-linux-gnux32"));
         assert!(archive_asset(&release, target).is_none());
+    }
+
+    fn zip_of(path: &Path, dirs: &[&str], files: &[(&str, &str)]) {
+        use std::io::Write;
+        let options = zip::write::SimpleFileOptions::default();
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        for dir in dirs {
+            zip.add_directory(*dir, options).unwrap();
+        }
+        for (name, body) in files {
+            zip.start_file(*name, options).unwrap();
+            zip.write_all(body.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    /// The shape 7-Zip writes: every directory listed before its files.
+    #[test]
+    fn a_zip_that_lists_its_directories_unpacks() {
+        let dir = scratch("zipdirs");
+        let archive = dir.join("a.zip");
+        zip_of(
+            &archive,
+            &["w/", "w/man/"],
+            &[("w/samplegauge.exe", "binary"), ("w/man/x.1", "page")],
+        );
+        let into = dir.join("out");
+        std::fs::create_dir_all(&into).unwrap();
+        extract_zip(&archive, &into).unwrap();
+        assert_eq!(
+            installed(&into, "w/samplegauge.exe").as_deref(),
+            Some("binary")
+        );
+        assert_eq!(installed(&into, "w/man/x.1").as_deref(), Some("page"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_zip_entry_naming_its_way_out_is_refused() {
+        let dir = scratch("zipslip");
+        let archive = dir.join("a.zip");
+        zip_of(&archive, &[], &[("../escaped", "x")]);
+        let into = dir.join("out");
+        std::fs::create_dir_all(&into).unwrap();
+        let err = extract_zip(&archive, &into).unwrap_err();
+        assert!(err.to_string().contains("outside"), "{err}");
+        assert!(!dir.join("escaped").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_a_regular_file_is_a_binary_to_install() {
+        let dir = scratch("regular");
+        std::fs::write(dir.join("file"), "x").unwrap();
+        std::fs::create_dir_all(dir.join("dir")).unwrap();
+        assert!(regular_file(&dir.join("file")));
+        assert!(!regular_file(&dir.join("dir")));
+        assert!(!regular_file(&dir.join("missing")));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.join("file"), dir.join("link")).unwrap();
+            assert!(!regular_file(&dir.join("link")));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_msi_install_directory_is_compared_as_windows_compares_paths() {
+        let exe = r"C:\Users\Me\AppData\Local\Programs\SampleGauge\samplegauge.exe";
+        for dir in [
+            r"C:\Users\Me\AppData\Local\Programs\SampleGauge\",
+            r"c:\users\me\appdata\local\programs\samplegauge",
+            "C:/Users/Me/AppData/Local/Programs/SampleGauge",
+        ] {
+            assert!(in_dir(exe, dir), "{dir}");
+        }
+        for dir in [
+            r"C:\Users\Me\AppData\Local\Programs",
+            r"C:\Users\Me\Downloads\SampleGauge",
+            "",
+        ] {
+            assert!(!in_dir(exe, dir), "{dir}");
+        }
+        assert!(!in_dir("samplegauge.exe", "C:\\"));
     }
 
     #[test]

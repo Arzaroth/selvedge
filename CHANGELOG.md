@@ -10,6 +10,22 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A zip that lists its directories unpacks.** self_update's extractor
+  created a file for every entry, so a release zip built by 7-Zip failed on
+  its first directory and no Windows update could succeed. Zips are unpacked
+  here now, and an entry whose name leads outside the staging directory is
+  refused rather than written there.
+- **A staged binary must be a regular file.** A symlink in the archive was
+  installed as a symlink, and its target made executable.
+
+### Added
+
+- **An MSI owns only the copy in its directory.** Beside the ProductCode, the
+  marker key may hold `InstallDir`; a copy running from anywhere else is not
+  the MSI's. A marker without it covers every copy, as before.
+
 ## [0.7.0] - 2026-10-11
 
 ### Added
