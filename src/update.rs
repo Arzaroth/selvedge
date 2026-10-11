@@ -411,12 +411,12 @@ pub(crate) fn apply_with(
         source.fetch_into(&tmp, &asset)?;
         let root = staged_root(&tmp, &asset.name);
 
-        // `is_file`, not `exists`: the move renames without looking at what it
-        // is moving, so a directory of that name in the archive would pass,
-        // land on the installed binary's path, and become what the aliases
-        // point at.
+        // A regular file, not anything that exists: the move renames without
+        // looking at what it is moving, so a directory of that name would land
+        // on the installed binary's path, and a symlink would be installed as
+        // one and its target made executable.
         let staged_primary = root.join(project.primary());
-        if !staged_primary.is_file() {
+        if !regular_file(&staged_primary) {
             bail!(
                 "release archive has no {} - refusing a partial update",
                 project.primary()
@@ -426,7 +426,7 @@ pub(crate) fn apply_with(
         for binary in project.binaries {
             let src = root.join(binary);
             // An archive from before a binary existed carries none of it.
-            if !src.is_file() {
+            if !regular_file(&src) {
                 continue;
             }
             let dest = install_dir.join(binary);
@@ -525,6 +525,10 @@ pub(crate) fn install_frontends_with(
 
     let _ = std::fs::remove_dir_all(&tmp);
     result
+}
+
+fn regular_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file())
 }
 
 /// Where the extracted archive keeps its files: the staging directory, or
@@ -673,10 +677,41 @@ fn fetch_into(tmp: &Path, name: &str, url: &str) -> Result<()> {
         .download_to(file)
         .context("download failed")?;
 
-    self_update::Extract::from_source(&archive)
-        .archive(archive_kind())
-        .extract_into(tmp)
-        .context("extract failed")
+    match archive_kind() {
+        self_update::ArchiveKind::Zip => extract_zip(&archive, tmp),
+        kind => self_update::Extract::from_source(&archive)
+            .archive(kind)
+            .extract_into(tmp)
+            .map_err(Into::into),
+    }
+    .context("extract failed")
+}
+
+/// self_update's zip extractor creates a file for every entry, so a zip that
+/// lists its directories, as 7-Zip writes them, fails on the first one; and it
+/// joins entry names unchecked, so `..\` lands outside the staging directory.
+fn extract_zip(archive: &Path, into: &Path) -> Result<()> {
+    let file = std::fs::File::open(archive)
+        .with_context(|| format!("cannot open {}", archive.display()))?;
+    let mut zip = zip::ZipArchive::new(file)?;
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i)?;
+        let path = entry
+            .enclosed_name()
+            .map(|name| into.join(name))
+            .ok_or_else(|| anyhow!("{} would land outside the archive", entry.name()))?;
+        if entry.is_dir() {
+            std::fs::create_dir_all(&path)?;
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut out = std::fs::File::create(&path)
+            .with_context(|| format!("cannot create {}", path.display()))?;
+        std::io::copy(&mut entry, &mut out)?;
+    }
+    Ok(())
 }
 
 fn install_frontends_from(
