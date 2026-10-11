@@ -1423,6 +1423,90 @@ mod tests {
         assert!(archive_asset(&release, target).is_none());
     }
 
+    fn zip_of(path: &Path, dirs: &[&str], files: &[(&str, &str)]) {
+        use std::io::Write;
+        let options = zip::write::SimpleFileOptions::default();
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+        for dir in dirs {
+            zip.add_directory(*dir, options).unwrap();
+        }
+        for (name, body) in files {
+            zip.start_file(*name, options).unwrap();
+            zip.write_all(body.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    /// The shape 7-Zip writes: every directory listed before its files.
+    #[test]
+    fn a_zip_that_lists_its_directories_unpacks() {
+        let dir = scratch("zipdirs");
+        let archive = dir.join("a.zip");
+        zip_of(
+            &archive,
+            &["w/", "w/man/"],
+            &[("w/samplegauge.exe", "binary"), ("w/man/x.1", "page")],
+        );
+        let into = dir.join("out");
+        std::fs::create_dir_all(&into).unwrap();
+        extract_zip(&archive, &into).unwrap();
+        assert_eq!(
+            installed(&into, "w/samplegauge.exe").as_deref(),
+            Some("binary")
+        );
+        assert_eq!(installed(&into, "w/man/x.1").as_deref(), Some("page"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_zip_entry_naming_its_way_out_is_refused() {
+        let dir = scratch("zipslip");
+        let archive = dir.join("a.zip");
+        zip_of(&archive, &[], &[("../escaped", "x")]);
+        let into = dir.join("out");
+        std::fs::create_dir_all(&into).unwrap();
+        let err = extract_zip(&archive, &into).unwrap_err();
+        assert!(err.to_string().contains("outside"), "{err}");
+        assert!(!dir.join("escaped").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_a_regular_file_is_a_binary_to_install() {
+        let dir = scratch("regular");
+        std::fs::write(dir.join("file"), "x").unwrap();
+        std::fs::create_dir_all(dir.join("dir")).unwrap();
+        assert!(regular_file(&dir.join("file")));
+        assert!(!regular_file(&dir.join("dir")));
+        assert!(!regular_file(&dir.join("missing")));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.join("file"), dir.join("link")).unwrap();
+            assert!(!regular_file(&dir.join("link")));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_msi_install_directory_is_compared_as_windows_compares_paths() {
+        let exe = r"C:\Users\Me\AppData\Local\Programs\SampleGauge\samplegauge.exe";
+        for dir in [
+            r"C:\Users\Me\AppData\Local\Programs\SampleGauge\",
+            r"c:\users\me\appdata\local\programs\samplegauge",
+            "C:/Users/Me/AppData/Local/Programs/SampleGauge",
+        ] {
+            assert!(in_dir(exe, dir), "{dir}");
+        }
+        for dir in [
+            r"C:\Users\Me\AppData\Local\Programs",
+            r"C:\Users\Me\Downloads\SampleGauge",
+            "",
+        ] {
+            assert!(!in_dir(exe, dir), "{dir}");
+        }
+        assert!(!in_dir("samplegauge.exe", "C:\\"));
+    }
+
     #[test]
     fn windows_on_arm_has_a_short_target() {
         assert_eq!(
