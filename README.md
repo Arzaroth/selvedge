@@ -88,6 +88,14 @@ stretch its weight buys, a tenth of the bar at least. Only the numbers are
 here: the label, the tone and any "estimate" badge are the caller's. It
 needs no feature and links nothing.
 
+What a plan weighs is the caller's too, except for a Claude Team seat, which
+both projects read off the same fields and used to read differently.
+`team_seat` takes the profile's `seatTier` and every rate-limit tier the login
+carries, and calls a seat premium when any tier names an `Nx` - a premium seat
+has been reported as `team_tier_1`, so the seat tier's name alone is not
+enough. `Seat::weight` is its multiplier against a Pro, and `tier_multiplier`
+the `N` of a tier such as `default_claude_max_20x`.
+
 ## The lock
 
 An update takes an exclusive lock on the install directory so one fired from

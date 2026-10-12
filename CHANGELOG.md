@@ -10,6 +10,15 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Added
+
+- **`plans::team_seat`: which seat a Claude Team login holds.** A rate-limit
+  tier naming an `Nx` makes it premium whatever the seat tier is called - a
+  premium seat reports `team_tier_1` beside `default_claude_max_5x` - and
+  `team_standard` / `team_premium` decide otherwise. `Seat::weight`,
+  `TEAM_STANDARD_WEIGHT`, `TEAM_PREMIUM_WEIGHT` and `tier_multiplier` come
+  with it, so TokenGauge and remuda stop each carrying the rule.
+
 ## [0.7.1] - 2026-10-11
 
 ### Fixed
