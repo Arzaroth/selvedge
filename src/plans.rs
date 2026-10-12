@@ -170,8 +170,7 @@ pub fn tier_multiplier(tier: &str) -> Option<u32> {
     tier.split(|c: char| !c.is_ascii_alphanumeric())
         .filter_map(|word| word.strip_suffix(['x', 'X']))
         .filter(|digits| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()))
-        .find_map(|digits| digits.parse::<u32>().ok())
-        .filter(|n| *n > 0)
+        .find_map(|digits| digits.parse::<u32>().ok().filter(|n| *n > 0))
 }
 
 /// The seat a Claude Team login holds, from what its profile and tokens say.
