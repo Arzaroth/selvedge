@@ -140,9 +140,115 @@ pub fn segment_widths(weights: &[f64]) -> Vec<f64> {
     }
 }
 
+/// A Claude Team seat's weight against a Pro: a standard seat is sold at
+/// 1.25x Pro's per-session allowance, a premium one at 6.25x
+/// (support.claude.com, "What is the Team plan?").
+pub const TEAM_STANDARD_WEIGHT: f64 = 1.25;
+/// See [`TEAM_STANDARD_WEIGHT`].
+pub const TEAM_PREMIUM_WEIGHT: f64 = 6.25;
+
+/// The seat a Claude Team login holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Seat {
+    Standard,
+    Premium,
+}
+
+impl Seat {
+    /// What the seat weighs, in Pros.
+    pub fn weight(self) -> f64 {
+        match self {
+            Seat::Standard => TEAM_STANDARD_WEIGHT,
+            Seat::Premium => TEAM_PREMIUM_WEIGHT,
+        }
+    }
+}
+
+/// The `N` of a rate-limit tier that names an `Nx` (`default_claude_max_5x`
+/// is 5). `None` for a tier that names none (`default_raven`).
+pub fn tier_multiplier(tier: &str) -> Option<u32> {
+    tier.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter_map(|word| word.strip_suffix(['x', 'X']))
+        .filter(|digits| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()))
+        .find_map(|digits| digits.parse::<u32>().ok().filter(|n| *n > 0))
+}
+
+/// The seat a Claude Team login holds, from what its profile and tokens say.
+///
+/// A rate-limit tier is the seat's own allowance, so one that names a
+/// multiplier or says `premium` is a premium seat, whatever `seat_tier` is
+/// called: a premium seat has been reported as `team_tier_1` beside a user
+/// tier of `default_claude_max_5x`. The tiers to pass are every one the login
+/// carries - `.claude.json`'s `userRateLimitTier`, the token's
+/// `rateLimitTier` - since a token issued to a premium seat can still carry
+/// the organization's `default_raven`. Without one, `seat_tier` decides when
+/// it is `team_premium` or `team_standard`, and anything else is `None`.
+pub fn team_seat(seat_tier: Option<&str>, rate_limit_tiers: &[Option<&str>]) -> Option<Seat> {
+    let premium_tier = rate_limit_tiers.iter().flatten().any(|tier| {
+        tier_multiplier(tier).is_some() || tier.to_ascii_lowercase().contains("premium")
+    });
+    if premium_tier {
+        return Some(Seat::Premium);
+    }
+    match seat_tier?.trim().to_ascii_lowercase().as_str() {
+        "team_premium" => Some(Seat::Premium),
+        "team_standard" => Some(Seat::Standard),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tier_names_its_multiplier_or_none() {
+        assert_eq!(tier_multiplier("default_claude_max_20x"), Some(20));
+        assert_eq!(tier_multiplier("default_claude_max_5x"), Some(5));
+        assert_eq!(tier_multiplier("default_claude_team_5X"), Some(5));
+        assert_eq!(tier_multiplier("default_raven"), None);
+        assert_eq!(tier_multiplier("default_claude_max_0x"), None);
+        assert_eq!(tier_multiplier("0x_default_claude_max_5x"), Some(5));
+        assert_eq!(tier_multiplier("x"), None);
+        assert_eq!(tier_multiplier(""), None);
+    }
+
+    #[test]
+    fn a_premium_seat_reads_from_its_tier_whatever_the_seat_is_called() {
+        assert_eq!(
+            team_seat(
+                Some("team_tier_1"),
+                &[Some("default_claude_max_5x"), Some("default_raven")]
+            ),
+            Some(Seat::Premium)
+        );
+        assert_eq!(
+            team_seat(Some("team_tier_1"), &[None, Some("default_claude_max_5x")]),
+            Some(Seat::Premium)
+        );
+        assert_eq!(
+            team_seat(None, &[Some("default_raven_premium")]),
+            Some(Seat::Premium)
+        );
+        assert_eq!(
+            team_seat(Some("team_tier_1"), &[Some("default_raven")]),
+            None
+        );
+    }
+
+    #[test]
+    fn without_a_tier_the_seat_tier_decides() {
+        assert_eq!(
+            team_seat(Some("team_standard"), &[Some("default_raven"), None]),
+            Some(Seat::Standard)
+        );
+        assert_eq!(team_seat(Some(" TEAM_PREMIUM "), &[]), Some(Seat::Premium));
+        assert_eq!(team_seat(Some("team_premium_trial"), &[]), None);
+        assert_eq!(team_seat(Some("enterprise_premium"), &[]), None);
+        assert_eq!(team_seat(None, &[None]), None);
+        assert_eq!(Seat::Standard.weight(), 1.25);
+        assert_eq!(Seat::Premium.weight(), 6.25);
+    }
 
     fn close(a: &[f64], b: &[f64]) -> bool {
         a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-9)
