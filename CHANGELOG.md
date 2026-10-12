@@ -10,6 +10,8 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-12
+
 ### Added
 
 - **`plans::team_seat`: which seat a Claude Team login holds.** A rate-limit
