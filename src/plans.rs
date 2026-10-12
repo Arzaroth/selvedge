@@ -208,6 +208,7 @@ mod tests {
         assert_eq!(tier_multiplier("default_claude_team_5X"), Some(5));
         assert_eq!(tier_multiplier("default_raven"), None);
         assert_eq!(tier_multiplier("default_claude_max_0x"), None);
+        assert_eq!(tier_multiplier("0x_default_claude_max_5x"), Some(5));
         assert_eq!(tier_multiplier("x"), None);
         assert_eq!(tier_multiplier(""), None);
     }
