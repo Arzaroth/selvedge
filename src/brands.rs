@@ -15,6 +15,21 @@ pub struct Brand {
     pub svg: &'static str,
     /// `#RRGGBB`, or `None` for a brand drawn in the caller's foreground.
     pub color: Option<&'static str>,
+    /// The mark is drawn in the caller's foreground even though the brand has
+    /// a colour: Kimi's K is black beside its blue dot.
+    pub foreground_mark: bool,
+}
+
+impl Brand {
+    /// The colour to draw the mark's `currentColor` in, or `None` for the
+    /// caller's foreground.
+    pub fn mark_color(&self) -> Option<&'static str> {
+        if self.foreground_mark {
+            None
+        } else {
+            self.color
+        }
+    }
 }
 
 /// Every provider with a mark, ordered by id.
@@ -23,41 +38,49 @@ pub const BRANDS: &[Brand] = &[
         id: "claude",
         svg: include_str!("../assets/providers/claude.svg"),
         color: Some("#DE7356"),
+        foreground_mark: false,
     },
     Brand {
         id: "codex",
         svg: include_str!("../assets/providers/codex.svg"),
         color: Some("#74AA9C"),
+        foreground_mark: false,
     },
     Brand {
         id: "cursor",
         svg: include_str!("../assets/providers/cursor.svg"),
         color: Some("#6C7086"),
+        foreground_mark: false,
     },
     Brand {
         id: "glm",
         svg: include_str!("../assets/providers/glm.svg"),
         color: None,
+        foreground_mark: false,
     },
     Brand {
         id: "grok",
         svg: include_str!("../assets/providers/grok.svg"),
         color: None,
+        foreground_mark: false,
     },
     Brand {
         id: "kimi",
         svg: include_str!("../assets/providers/kimi.svg"),
         color: Some("#1783FF"),
+        foreground_mark: true,
     },
     Brand {
         id: "opencode",
         svg: include_str!("../assets/providers/opencode.svg"),
         color: None,
+        foreground_mark: false,
     },
     Brand {
         id: "openrouter",
         svg: include_str!("../assets/providers/openrouter.svg"),
         color: Some("#6467F2"),
+        foreground_mark: false,
     },
 ];
 
@@ -101,5 +124,11 @@ mod tests {
         assert_eq!(brand("kimi").and_then(|b| b.color), Some("#1783FF"));
         assert_eq!(brand("grok").map(|b| b.color), Some(None));
         assert!(brand("nobody").is_none());
+    }
+
+    #[test]
+    fn kimi_draws_its_k_in_the_foreground_and_claude_in_its_colour() {
+        assert_eq!(brand("kimi").unwrap().mark_color(), None);
+        assert_eq!(brand("claude").unwrap().mark_color(), Some("#DE7356"));
     }
 }
