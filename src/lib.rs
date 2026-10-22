@@ -12,8 +12,10 @@
 //!
 //! [`plans`] is the other thing they share and is not about updating: adding
 //! several subscriptions at one vendor up into one meter, which TokenGauge
-//! and remuda both draw.
+//! and remuda both draw. [`brands`] is the third: each provider's mark and
+//! colour, so the two draw a provider alike.
 
+pub mod brands;
 pub mod frontend;
 pub mod plans;
 pub mod proc;
