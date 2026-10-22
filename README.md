@@ -102,7 +102,9 @@ the `N` of a tier such as `default_claude_max_20x`.
 the same in TokenGauge's panels and on remuda's page. A mark is an SVG in
 `currentColor` for the caller to tint; a black-and-white brand (Grok, Z.ai,
 opencode) has no colour and is drawn in the caller's foreground, so it shows on
-a dark panel and a light page alike. It needs no feature and links nothing.
+a dark panel and a light page alike. `mark_color` is what to tint a mark in:
+Kimi keeps its blue for accents but draws its K in the foreground, beside the
+blue dot the mark carries itself. It needs no feature and links nothing.
 
 ```rust
 let kimi = selvedge::brands::brand("kimi").unwrap();

@@ -10,6 +10,13 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Added
+
+- **`Brand::foreground_mark` and `Brand::mark_color`.** Kimi's K is black
+  beside its blue dot, so a caller tinting the mark in the brand colour drew
+  the whole K blue. `mark_color` is the colour to give `currentColor`: the
+  brand's, or `None` for the caller's foreground.
+
 ## [0.9.0] - 2026-10-22
 
 ### Added
