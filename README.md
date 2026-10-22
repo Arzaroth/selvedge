@@ -96,6 +96,21 @@ has been reported as `team_tier_1`, so the seat tier's name alone is not
 enough. `Seat::weight` is its multiplier against a Pro, and `tier_multiplier`
 the `N` of a tier such as `default_claude_max_20x`.
 
+## Each provider's mark
+
+`selvedge::brands` holds every provider's mark and colour, so a provider looks
+the same in TokenGauge's panels and on remuda's page. A mark is an SVG in
+`currentColor` for the caller to tint; a black-and-white brand (Grok, Z.ai,
+opencode) has no colour and is drawn in the caller's foreground, so it shows on
+a dark panel and a light page alike. It needs no feature and links nothing.
+
+```rust
+let kimi = selvedge::brands::brand("kimi").unwrap();
+assert_eq!(kimi.color, Some("#1783FF"));
+```
+
+Where each mark comes from is in `assets/providers/NOTICE`.
+
 ## The lock
 
 An update takes an exclusive lock on the install directory so one fired from

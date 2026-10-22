@@ -10,6 +10,15 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Added
+
+- **`brands`: each provider's mark and colour.** TokenGauge carried the SVGs
+  and remuda a hand copy of them, and both had drifted from the providers'
+  own logos. Kimi's mark is its current K with the blue dot, opencode's has
+  the block inside its frame, and Z.ai, opencode and Grok are black and white
+  (`color: None`, drawn in the caller's foreground) rather than given a
+  colour that is not theirs.
+
 ## [0.8.0] - 2026-10-12
 
 ### Added
