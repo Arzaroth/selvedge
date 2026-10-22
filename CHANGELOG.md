@@ -10,6 +10,8 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-22
+
 ### Added
 
 - **`Brand::foreground_mark` and `Brand::mark_color`.** Kimi's K is black
