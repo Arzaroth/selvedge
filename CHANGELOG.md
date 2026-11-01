@@ -16,7 +16,8 @@ anything breaking is two repositories.
   is which login each CLI spent and when, with `Ledger::login_at` as the rule
   for a billed request; `usage::requests` is remuda's proxy log, one line per
   request with the ids a transcript records, so a reader counts it once;
-  `usage::export` is what `tokengauge --usage-json` prints. `TokenCounts` and
+  `usage::export` is what `tokengauge --usage-json` prints, with a row's
+  cost `null` when its model had no price that month. `TokenCounts` and
   `account_digest` move here from TokenGauge unchanged, wire names included.
 - **`proc::installed` and `proc::start_time`.** Finding a sibling binary off
   `PATH` in `~/.local/bin`, and field 22 of a process's stat line, which both
