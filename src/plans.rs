@@ -5,8 +5,8 @@
 //! own language. The figures are numbers here; the words around them - a
 //! label, a tone, "estimate" - are the caller's.
 //!
-//! Every plan is counted in units of the largest one, so a Max 20x and a Pro
-//! both spent read "105% of 105%": each contributes `used × weight ÷ largest`,
+//! Every plan is counted in units of the largest one, so an Ultra and a Pro
+//! both spent read "110% of 110%": each contributes `used × weight ÷ largest`,
 //! and the capacity is the same sum at 100%. Counting every plan as 1 is the
 //! same arithmetic with equal weights, so five plans read "409% of 500%".
 
@@ -96,7 +96,7 @@ pub fn whole_percent(x: f64) -> i64 {
 pub const MIN_SEGMENT_WIDTH: f64 = 0.1;
 
 /// Each weight's share of a split bar, none under [`MIN_SEGMENT_WIDTH`]. A
-/// Max 20x beside two Pro seats would otherwise draw them as slivers next to
+/// Ultra beside two Pro seats would otherwise draw them as slivers next to
 /// one bar that reads as pooled. Segments held at the minimum are taken out
 /// and the rest is shared again by weight, until none falls under it.
 pub fn segment_widths(weights: &[f64]) -> Vec<f64> {
@@ -164,6 +164,56 @@ impl Seat {
     }
 }
 
+/// A Claude Max plan. The tiers still carry the multipliers the plans were
+/// once sold by, but those named the 5-hour session: the weekly allowance
+/// Ultra (`default_claude_max_20x`) buys is 10x a Pro's, and a verified
+/// Ultra account has no 5-hour window (one still being verified keeps a
+/// temporary one).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaxPlan {
+    Max,
+    Ultra,
+}
+
+impl MaxPlan {
+    /// What the plan is sold as.
+    pub fn name(self) -> &'static str {
+        match self {
+            MaxPlan::Max => "Max",
+            MaxPlan::Ultra => "Ultra",
+        }
+    }
+
+    /// What its weekly allowance weighs, in Pros.
+    pub fn weight(self) -> f64 {
+        match self {
+            MaxPlan::Max => 5.0,
+            MaxPlan::Ultra => 10.0,
+        }
+    }
+}
+
+/// The Max plan a rate-limit tier names: `default_claude_max_5x` is Max,
+/// `default_claude_max_20x` or a tier that says `ultra` is Ultra.
+///
+/// The tier alone does not say the account is a Max: a Team premium seat can
+/// carry `default_claude_max_5x` too. Rule a Team plan out first (its
+/// subscription type, or [`team_seat`]) before naming or weighing a login by
+/// this.
+pub fn max_plan(tier: &str) -> Option<MaxPlan> {
+    let ultra = tier
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|word| word.eq_ignore_ascii_case("ultra"));
+    if ultra {
+        return Some(MaxPlan::Ultra);
+    }
+    match tier_multiplier(tier)? {
+        5 => Some(MaxPlan::Max),
+        20 => Some(MaxPlan::Ultra),
+        _ => None,
+    }
+}
+
 /// The `N` of a rate-limit tier that names an `Nx` (`default_claude_max_5x`
 /// is 5). `None` for a tier that names none (`default_raven`).
 pub fn tier_multiplier(tier: &str) -> Option<u32> {
@@ -211,6 +261,19 @@ mod tests {
         assert_eq!(tier_multiplier("0x_default_claude_max_5x"), Some(5));
         assert_eq!(tier_multiplier("x"), None);
         assert_eq!(tier_multiplier(""), None);
+    }
+
+    #[test]
+    fn a_max_tier_names_its_plan() {
+        assert_eq!(max_plan("default_claude_max_5x"), Some(MaxPlan::Max));
+        assert_eq!(max_plan("v2_default_claude_max_20x"), Some(MaxPlan::Ultra));
+        assert_eq!(max_plan("default_claude_ultra"), Some(MaxPlan::Ultra));
+        assert_eq!(max_plan("default_claude_max_8x"), None);
+        assert_eq!(max_plan("default_raven"), None);
+        assert_eq!(MaxPlan::Max.name(), "Max");
+        assert_eq!(MaxPlan::Ultra.name(), "Ultra");
+        assert_eq!(MaxPlan::Max.weight(), 5.0);
+        assert_eq!(MaxPlan::Ultra.weight(), 10.0);
     }
 
     #[test]
