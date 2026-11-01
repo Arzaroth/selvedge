@@ -41,11 +41,13 @@ fn is_executable(path: &Path) -> bool {
 
 /// `name` on `PATH`, else `~/.local/bin/<name>`, where the installers put it:
 /// a GUI or a service started outside a login shell often has no
-/// `~/.local/bin` on its `PATH`.
+/// `~/.local/bin` on its `PATH`. On Windows the name is looked for as
+/// `<name>.exe`.
 pub fn installed(name: &str) -> Option<PathBuf> {
+    let name = format!("{name}{}", std::env::consts::EXE_SUFFIX);
     installed_in(
-        name,
-        which(name),
+        &name,
+        which(&name),
         std::env::var_os("HOME").map(PathBuf::from),
     )
 }
