@@ -166,8 +166,9 @@ impl Seat {
 
 /// A Claude Max plan. The tiers still carry the multipliers the plans were
 /// once sold by, but those named the 5-hour session: the weekly allowance
-/// Ultra (`default_claude_max_20x`) buys is 10x a Pro's, and Ultra has no
-/// 5-hour window at all.
+/// Ultra (`default_claude_max_20x`) buys is 10x a Pro's, and a verified
+/// Ultra account has no 5-hour window (one still being verified keeps a
+/// temporary one).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MaxPlan {
     Max,
@@ -194,6 +195,11 @@ impl MaxPlan {
 
 /// The Max plan a rate-limit tier names: `default_claude_max_5x` is Max,
 /// `default_claude_max_20x` or a tier that says `ultra` is Ultra.
+///
+/// The tier alone does not say the account is a Max: a Team premium seat can
+/// carry `default_claude_max_5x` too. Rule a Team plan out first (its
+/// subscription type, or [`team_seat`]) before naming or weighing a login by
+/// this.
 pub fn max_plan(tier: &str) -> Option<MaxPlan> {
     let ultra = tier
         .split(|c: char| !c.is_ascii_alphanumeric())
