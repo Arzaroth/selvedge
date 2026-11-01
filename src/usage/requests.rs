@@ -156,14 +156,22 @@ mod tests {
     }
 
     #[test]
+    fn a_store_nothing_was_ever_logged_to_has_no_requests() {
+        let store = crate::usage::temp_store("requests-none");
+        assert!(read(&store).unwrap().is_empty());
+        let _ = fs::remove_dir_all(&store);
+    }
+
+    #[test]
     fn a_full_file_rotates_and_both_halves_are_read() {
         let store = crate::usage::temp_store("requests-rotate");
         append(&store, &request(1)).unwrap();
-        let file = fs::OpenOptions::new()
+        fs::OpenOptions::new()
             .append(true)
             .open(store.join(FILE))
+            .unwrap()
+            .set_len(ROTATE_AT)
             .unwrap();
-        file.set_len(ROTATE_AT).unwrap();
         append(&store, &request(2)).unwrap();
         assert!(store.join(ROTATED).exists());
         let ats: Vec<i64> = read(&store).unwrap().iter().map(|r| r.at).collect();
