@@ -71,29 +71,38 @@ pub fn read(store: &Path) -> io::Result<Vec<Entry>> {
 
 /// Drops what is older than `before`, except each CLI's last `live` line from
 /// then, which is still in force and is what everything after it is read
-/// against.
+/// against. A line this build cannot read, which a newer writer may have
+/// added, is kept as it is.
 pub fn prune(store: &Path, before: i64) -> io::Result<()> {
     let _lock = super::lock(store, LOCK)?;
     let path = store.join(FILE);
-    let entries: Vec<Entry> = super::read_lines(&path)?;
-    let mut in_force: HashMap<&str, usize> = HashMap::new();
+    let lines = super::raw_lines(&path)?;
+    let entries: Vec<Option<Entry>> = lines
+        .iter()
+        .map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let mut in_force: HashMap<&str, (i64, usize)> = HashMap::new();
     for (index, entry) in entries.iter().enumerate() {
-        if let Entry::Live { at, provider, .. } = entry
+        if let Some(Entry::Live { at, provider, .. }) = entry
             && *at < before
             && in_force
                 .get(provider.as_str())
-                .is_none_or(|&kept| entries[kept].at() <= *at)
+                .is_none_or(|&(kept, _)| kept <= *at)
         {
-            in_force.insert(provider, index);
+            in_force.insert(provider, (*at, index));
         }
     }
-    let kept: Vec<&Entry> = entries
+    let kept: Vec<&str> = lines
         .iter()
+        .zip(&entries)
         .enumerate()
-        .filter(|(index, entry)| entry.at() >= before || in_force.values().any(|k| k == index))
-        .map(|(_, entry)| entry)
+        .filter(|(index, (_, entry))| match entry {
+            Some(entry) => entry.at() >= before || in_force.values().any(|&(_, k)| k == *index),
+            None => true,
+        })
+        .map(|(_, (line, _))| line.as_str())
         .collect();
-    if kept.len() == entries.len() {
+    if kept.len() == lines.len() {
         return Ok(());
     }
     super::replace_lines(&path, &kept)

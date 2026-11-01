@@ -99,25 +99,25 @@ fn append_line(path: &Path, value: &impl Serialize) -> io::Result<()> {
 /// a line that does not parse - one a newer writer added a kind to, or one cut
 /// short by a full disk - is skipped rather than costing the rest.
 fn read_lines<T: DeserializeOwned>(path: &Path) -> io::Result<Vec<T>> {
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(err) => return Err(err),
-    };
-    let mut out = Vec::new();
-    for line in BufReader::new(file).lines() {
-        if let Ok(value) = serde_json::from_str(&line?) {
-            out.push(value);
-        }
-    }
-    Ok(out)
+    Ok(raw_lines(path)?
+        .iter()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect())
 }
 
-fn replace_lines<T: Serialize>(path: &Path, values: &[T]) -> io::Result<()> {
+fn raw_lines(path: &Path) -> io::Result<Vec<String>> {
+    match File::open(path) {
+        Ok(file) => BufReader::new(file).lines().collect(),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(err) => Err(err),
+    }
+}
+
+fn replace_lines(path: &Path, lines: &[&str]) -> io::Result<()> {
     let temp = path.with_extension("jsonl.tmp");
     let mut body = Vec::new();
-    for value in values {
-        serde_json::to_writer(&mut body, value)?;
+    for line in lines {
+        body.extend_from_slice(line.as_bytes());
         body.push(b'\n');
     }
     private(OpenOptions::new().create(true).truncate(true).write(true))
