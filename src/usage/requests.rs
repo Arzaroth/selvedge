@@ -87,8 +87,16 @@ pub fn append(store: &Path, request: &Request) -> io::Result<()> {
     super::append_line(&path, request)
 }
 
-/// Every request both files hold, oldest first.
+/// Every request both files hold, oldest first, read under the writers' lock
+/// so a rotation cannot land between the two reads. No lock file means no
+/// request was ever written.
 pub fn read(store: &Path) -> io::Result<Vec<Request>> {
+    let lock = match fs::File::open(store.join(LOCK)) {
+        Ok(lock) => lock,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err),
+    };
+    lock.lock_shared()?;
     let mut requests = super::read_lines(&store.join(ROTATED))?;
     requests.extend(super::read_lines(&store.join(FILE))?);
     Ok(requests)
