@@ -10,6 +10,18 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Added
+
+- **`usage`, the records remuda writes and TokenGauge reads.** `usage::ledger`
+  is which login each CLI spent and when, with `Ledger::login_at` as the rule
+  for a billed request; `usage::requests` is remuda's proxy log, one line per
+  request with the ids a transcript records, so a reader counts it once;
+  `usage::export` is what `tokengauge --usage-json` prints. `TokenCounts` and
+  `account_digest` move here from TokenGauge unchanged, wire names included.
+- **`proc::installed` and `proc::start_time`.** Finding a sibling binary off
+  `PATH` in `~/.local/bin`, and field 22 of a process's stat line, which both
+  callers kept their own copy of.
+
 ## [0.11.0] - 2026-11-01
 
 ### Added
