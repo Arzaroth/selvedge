@@ -61,10 +61,11 @@ fn installed_in(name: &str, on_path: Option<PathBuf>, home: Option<PathBuf>) -> 
 
 /// When a process started, in clock ticks since boot, which tells it apart
 /// from a later one given the same pid. `None` off Linux or once it is gone.
+/// The command name in the line is cut at 15 bytes, which can split a UTF-8
+/// character, so the line is read as bytes.
 pub fn start_time(pid: u32) -> Option<u64> {
-    let stat =
-        std::fs::read_to_string(Path::new("/proc").join(pid.to_string()).join("stat")).ok()?;
-    stat_start_time(&stat)
+    let stat = std::fs::read(Path::new("/proc").join(pid.to_string()).join("stat")).ok()?;
+    stat_start_time(&String::from_utf8_lossy(&stat))
 }
 
 /// Field 22 of a `/proc/<pid>/stat` line. The command name in field 2 may hold
