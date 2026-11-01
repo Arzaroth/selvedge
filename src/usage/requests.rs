@@ -167,7 +167,7 @@ mod tests {
         let store = crate::usage::temp_store("requests-rotate");
         append(&store, &request(1)).unwrap();
         fs::OpenOptions::new()
-            .append(true)
+            .write(true)
             .open(store.join(FILE))
             .unwrap()
             .set_len(ROTATE_AT)
