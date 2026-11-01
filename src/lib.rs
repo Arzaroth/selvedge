@@ -22,6 +22,7 @@ pub mod proc;
 pub mod state;
 #[cfg(feature = "updater")]
 pub mod update;
+pub mod usage;
 
 pub use frontend::{Frontend, Restart, VersionSource};
 pub use proc::which;
