@@ -116,6 +116,32 @@ assert_eq!(kimi.color, Some("#1783FF"));
 
 Where each mark comes from is in `assets/providers/NOTICE`.
 
+## Who spent what
+
+`selvedge::usage` holds the records remuda writes and TokenGauge reads. remuda
+switches logins and runs a proxy, so only it knows which login a request
+spent; TokenGauge reads the CLIs' transcripts and prices them, so only it knows
+what the request cost. The files between them are a contract, so each one is
+declared here once, with its writer and its reader:
+
+| Module | File | Written by | Read by |
+| --- | --- | --- | --- |
+| `usage::ledger` | `<store>/.attribution.jsonl` | remuda, on a switch, a login change it notices, and each `remuda run` session | TokenGauge, to give each billed request a login |
+| `usage::requests` | `<store>/.proxy-requests.jsonl` (and `.1` once rotated at 8 MiB) | remuda's proxy, one line per request | TokenGauge, for spend no transcript holds; remuda, for its request views |
+| `usage::export` | stdout of `tokengauge --usage-json` | TokenGauge | remuda's Usage page |
+
+`Ledger::login_at` is the rule for a billed request: the login its session ran
+under when a `remuda run` claimed it, else the login the CLI's files held at
+that instant, else nobody. Nothing is guessed backwards: usage from before the
+ledger's first line stays unattributed. A login is named by
+`account_digest`, the first 16 hex digits of its account id's SHA-256, wherever
+the id itself must not be written down. `TokenCounts` is TokenGauge's sync wire
+format, and both sides count tokens in it.
+
+`proc::installed` finds a sibling binary the way the installers lay it out
+(`PATH`, then `~/.local/bin`), and `proc::start_time` tells a live process from
+a later one handed the same pid. It needs no feature.
+
 ## The lock
 
 An update takes an exclusive lock on the install directory so one fired from

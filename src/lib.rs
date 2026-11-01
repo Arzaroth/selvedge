@@ -13,7 +13,9 @@
 //! [`plans`] is the other thing they share and is not about updating: adding
 //! several subscriptions at one vendor up into one meter, which TokenGauge
 //! and remuda both draw. [`brands`] is the third: each provider's mark and
-//! colour, so the two draw a provider alike.
+//! colour, so the two draw a provider alike. [`usage`] is the fourth: the
+//! records remuda writes and TokenGauge reads to tell which login spent what,
+//! and the export TokenGauge prints for remuda's usage page.
 
 pub mod brands;
 pub mod frontend;
