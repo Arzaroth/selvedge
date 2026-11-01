@@ -281,6 +281,26 @@ mod tests {
     }
 
     #[test]
+    fn pruning_keeps_a_line_a_newer_writer_added() {
+        let store = crate::usage::temp_store("ledger-prune-unknown");
+        append(&store, &live(10, Some("old"))).unwrap();
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(store.join(FILE))
+            .unwrap()
+            .write_all(b"{\"kind\":\"later\",\"at\":5}\n")
+            .unwrap();
+        append(&store, &live(20, Some("a"))).unwrap();
+
+        prune(&store, 100).unwrap();
+
+        let text = std::fs::read_to_string(store.join(FILE)).unwrap();
+        assert!(text.contains(r#""kind":"later""#), "{text}");
+        assert!(!text.contains("old"), "{text}");
+        let _ = std::fs::remove_dir_all(&store);
+    }
+
+    #[test]
     fn pruning_keeps_the_live_line_still_in_force() {
         let store = crate::usage::temp_store("ledger-prune");
         for entry in [
