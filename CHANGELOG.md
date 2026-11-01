@@ -10,6 +10,8 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-01
+
 ### Added
 
 - **`usage`, the records remuda writes and TokenGauge reads.** `usage::ledger`
