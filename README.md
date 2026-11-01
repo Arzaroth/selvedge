@@ -76,10 +76,10 @@ arithmetic, in Rust and in TypeScript.
 use selvedge::plans::{pool, Share};
 
 let p = pool(&[
-    Share { used: 100.0, weight: 20.0 }, // a Max 20x, spent
+    Share { used: 100.0, weight: 10.0 }, // an Ultra, spent
     Share { used: 100.0, weight: 1.0 },  // a Pro, spent
 ]).unwrap();
-assert_eq!(p.label(), "105% of 105%");
+assert_eq!(p.label(), "110% of 110%");
 ```
 
 Plans count in units of the largest one, a half rounds to even, a pooled bar
@@ -94,7 +94,10 @@ both projects read off the same fields and used to read differently.
 carries, and calls a seat premium when any tier names an `Nx` - a premium seat
 has been reported as `team_tier_1`, so the seat tier's name alone is not
 enough. `Seat::weight` is its multiplier against a Pro, and `tier_multiplier`
-the `N` of a tier such as `default_claude_max_20x`.
+the `N` of a tier such as `default_claude_max_20x`. That `N` is not what a Max
+plan weighs: `max_plan` names the plan a tier is sold as (`_5x` is Max, `_20x`
+Ultra) and `MaxPlan::weight` is its weekly allowance against a Pro's, 5 and
+10.
 
 ## Each provider's mark
 

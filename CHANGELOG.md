@@ -10,6 +10,15 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Added
+
+- **`plans::max_plan` and `MaxPlan`.** Claude renamed Max 5x to Max and Max
+  20x to Ultra, and the 20x only ever described the 5-hour session, which
+  Ultra no longer has: its weekly allowance is 10x a Pro's. `max_plan` names
+  the plan a rate-limit tier is sold as, and `MaxPlan::weight` is what it
+  weighs in a pooled weekly meter (5 and 10), where `tier_multiplier`'s 20
+  overstated Ultra twice over.
+
 ## [0.10.0] - 2026-10-22
 
 ### Added
