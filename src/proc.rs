@@ -39,6 +39,43 @@ fn is_executable(path: &Path) -> bool {
     path.is_file()
 }
 
+/// `name` on `PATH`, else `~/.local/bin/<name>`, where the installers put it:
+/// a GUI or a service started outside a login shell often has no
+/// `~/.local/bin` on its `PATH`.
+pub fn installed(name: &str) -> Option<PathBuf> {
+    installed_in(
+        name,
+        which(name),
+        std::env::var_os("HOME").map(PathBuf::from),
+    )
+}
+
+fn installed_in(name: &str, on_path: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {
+    on_path.or_else(|| {
+        let local = home?.join(".local/bin").join(name);
+        is_executable(&local).then_some(local)
+    })
+}
+
+/// When a process started, in clock ticks since boot, which tells it apart
+/// from a later one given the same pid. `None` off Linux or once it is gone.
+pub fn start_time(pid: u32) -> Option<u64> {
+    let stat =
+        std::fs::read_to_string(Path::new("/proc").join(pid.to_string()).join("stat")).ok()?;
+    stat_start_time(&stat)
+}
+
+/// Field 22 of a `/proc/<pid>/stat` line. The command name in field 2 may hold
+/// spaces and parentheses, so the fields are counted from after its last `)`.
+pub fn stat_start_time(stat: &str) -> Option<u64> {
+    stat.rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .nth(19)?
+        .parse()
+        .ok()
+}
+
 /// Run a command to completion, capturing both streams.
 pub fn run<I, S>(program: &str, args: I) -> std::io::Result<Output>
 where
@@ -113,6 +150,44 @@ mod tests {
 
         assert!(found.is_none(), "a non-executable file answered: {found:?}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_start_time_is_the_twenty_second_stat_field() {
+        let stat = "4242 (a (b) c) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 987654 20 21";
+        assert_eq!(stat_start_time(stat), Some(987654));
+        assert_eq!(stat_start_time("4242 (short) S 1 2"), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn this_process_has_a_start_time() {
+        assert!(start_time(std::process::id()).is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_program_off_path_is_found_where_the_installer_puts_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("selvedge-installed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let bin = home.join(".local/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let program = bin.join("samplegauge");
+        std::fs::write(&program, "#!/bin/sh\n").unwrap();
+
+        assert_eq!(installed_in("samplegauge", None, Some(home.clone())), None);
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            installed_in("samplegauge", None, Some(home.clone())),
+            Some(program)
+        );
+        let on_path = PathBuf::from("/usr/bin/samplegauge");
+        assert_eq!(
+            installed_in("samplegauge", Some(on_path.clone()), Some(home.clone())),
+            Some(on_path)
+        );
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[cfg(unix)]
