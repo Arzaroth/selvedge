@@ -52,7 +52,9 @@ pub struct Row {
     #[serde(default, skip_serializing_if = "super::is_zero")]
     pub sessions: u64,
     pub tokens: TokenCounts,
-    pub usd: TypeCosts,
+    /// `None` when the model had no price for the row's month: a gap, never a
+    /// zero, since `$0.00` beside a million tokens reads as free use.
+    pub usd: Option<TypeCosts>,
 }
 
 /// A row's cost split by the rate it was billed at.
@@ -136,12 +138,12 @@ mod tests {
                     cache_read: 9,
                     ..TokenCounts::default()
                 },
-                usd: TypeCosts {
+                usd: Some(TypeCosts {
                     input: 0.5,
                     output: 0.0,
                     cache_write: 0.0,
                     cache_read: 0.25,
-                },
+                }),
             }],
         }
     }
@@ -163,7 +165,7 @@ mod tests {
     fn an_export_reads_back_and_a_newer_schema_is_refused() {
         let bytes = serde_json::to_vec(&export()).unwrap();
         assert_eq!(UsageExport::parse(&bytes).unwrap(), export());
-        assert_eq!(export().rows[0].usd.total(), 0.75);
+        assert_eq!(export().rows[0].usd.map(|usd| usd.total()), Some(0.75));
 
         let newer = br#"{"schemaVersion":2,"rows":"anything"}"#;
         assert!(matches!(
@@ -184,5 +186,14 @@ mod tests {
         let text = serde_json::to_string(&export).unwrap();
         assert!(text.contains(r#""login":null,"source""#), "{text}");
         assert!(!text.contains("sessions"), "{text}");
+    }
+
+    #[test]
+    fn an_unpriced_row_has_a_null_cost() {
+        let mut export = export();
+        export.rows[0].usd = None;
+        let text = serde_json::to_string(&export).unwrap();
+        assert!(text.contains(r#""usd":null"#), "{text}");
+        assert_eq!(UsageExport::parse(text.as_bytes()).unwrap(), export);
     }
 }
