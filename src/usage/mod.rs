@@ -7,8 +7,15 @@
 //! the other silently stops seeing. So each format is declared here once, with
 //! its writer and its reader, and neither caller spells a key of its own.
 
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, BufRead, BufReader, Write};
+use std::path::Path;
+
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+pub mod ledger;
 
 /// Tokens billed at each rate. `input` is *fresh* input: Codex reports cached
 /// tokens inside its input count and Anthropic reports them beside them, and
@@ -61,6 +68,68 @@ pub fn account_digest(account_id: &str) -> String {
         .take(8)
         .map(|b| format!("{b:02x}"))
         .collect()
+}
+
+/// Holds `<store>/<name>` exclusively until dropped. Every writer of one of
+/// these files takes it, so an append never lands in a file being replaced.
+fn lock(store: &Path, name: &str) -> io::Result<File> {
+    let file = private(OpenOptions::new().create(true).truncate(false).write(true))
+        .open(store.join(name))?;
+    file.lock()?;
+    Ok(file)
+}
+
+fn private(options: &mut OpenOptions) -> &mut OpenOptions {
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(options, 0o600);
+    options
+}
+
+fn append_line(path: &Path, value: &impl Serialize) -> io::Result<()> {
+    let mut line = serde_json::to_vec(value)?;
+    line.push(b'\n');
+    private(OpenOptions::new().create(true).append(true))
+        .open(path)?
+        .write_all(&line)
+}
+
+/// Every line of `path` that parses, in order. A missing file is no lines, and
+/// a line that does not parse - one a newer writer added a kind to, or one cut
+/// short by a full disk - is skipped rather than costing the rest.
+fn read_lines<T: DeserializeOwned>(path: &Path) -> io::Result<Vec<T>> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err),
+    };
+    let mut out = Vec::new();
+    for line in BufReader::new(file).lines() {
+        if let Ok(value) = serde_json::from_str(&line?) {
+            out.push(value);
+        }
+    }
+    Ok(out)
+}
+
+fn replace_lines<T: Serialize>(path: &Path, values: &[T]) -> io::Result<()> {
+    let temp = path.with_extension("jsonl.tmp");
+    let mut body = Vec::new();
+    for value in values {
+        serde_json::to_writer(&mut body, value)?;
+        body.push(b'\n');
+    }
+    private(OpenOptions::new().create(true).truncate(true).write(true))
+        .open(&temp)?
+        .write_all(&body)?;
+    fs::rename(&temp, path)
+}
+
+#[cfg(test)]
+pub(crate) fn temp_store(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("selvedge-usage-{tag}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    dir
 }
 
 #[cfg(test)]
