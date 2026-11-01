@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub mod ledger;
+pub mod requests;
 
 /// Tokens billed at each rate. `input` is *fresh* input: Codex reports cached
 /// tokens inside its input count and Anthropic reports them beside them, and
