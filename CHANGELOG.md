@@ -10,6 +10,8 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-01
+
 ### Added
 
 - **`plans::max_plan` and `MaxPlan`.** Claude renamed Max 5x to Max and Max
