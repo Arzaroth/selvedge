@@ -1,0 +1,48 @@
+name: Catalog canary
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  pricing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Compare the pricing pages with the catalog
+        id: canary
+        run: |
+          set +e
+          python3 -I scripts/catalog-canary.py | tee report.txt
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the issue
+        if: steps.canary.outputs.status == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          title="Plan catalog: a pricing page changed"
+          {
+            echo "The canary found a pricing page whose dollar figures no longer match \`src/catalog.json\`. Check the page, update the plan's terms if a price or allowance changed, and record the page's figures."
+            echo
+            echo '```'
+            cat report.txt
+            echo '```'
+          } > body.md
+          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          if [ -n "$number" ]; then
+            last=$(gh issue view "$number" --json body,comments --jq '([.body] + [.comments[].body]) | last')
+            [ "$last" = "$(cat body.md)" ] || gh issue comment "$number" --body-file body.md
+          else
+            gh issue create --title "$title" --body-file body.md
+          fi
