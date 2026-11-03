@@ -15,7 +15,7 @@ anything breaking is two repositories.
 - **`catalog`, what each subscription costs and weighs, and since when.**
   Every plan TokenGauge and remuda know, by the id its provider's API names it
   with, as dated terms: monthly list price, weight against the provider's base
-  plan, and the source each came from. `Plan::on` reads the term a past day
+  plan, and the source where one was recorded. `Plan::on` reads the term a past day
   was under. It is seeded with the ChatGPT Pro history (5x and 20x, the
   renames, Pro 500, the Pro 200 cut for new subscribers and the 29 October
   doubling) and Claude's Max and Ultra, with each provider's current list
