@@ -18,7 +18,10 @@ anything breaking is two repositories.
   plan, and the source each came from. `Plan::on` reads the term a past day
   was under. It is seeded with the ChatGPT Pro history (5x and 20x, the
   renames, Pro 500, the Pro 200 cut for new subscribers and the 29 October
-  doubling) and Claude's Max and Ultra.
+  doubling) and Claude's Max and Ultra, with each provider's current list
+  prices, and Cursor's and Grok's X Subscription plans (12 October 2026)
+  beside the legacy ones their subscribers keep. A plan can weigh in its own
+  `unit` when its line is not the provider's base one.
 - **A daily canary** compares each pricing page's dollar figures with the
   catalog's and opens an issue when one moves.
 

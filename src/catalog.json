@@ -24,17 +24,20 @@
     },
     "codex": {
       "unit": "plus",
-      "pricing": {"url": "https://chatgpt.com/pricing/", "rendered": "client"},
+      "pricing": {"url": "https://learn.chatgpt.com/docs/pricing", "rendered": "server", "figures": [0, 0.05, 8, 20, 25, 100, 200, 500]},
       "plans": {
+        "go": {"name": "Go", "terms": [
+          {"usdMonth": 8, "source": "https://learn.chatgpt.com/docs/pricing", "checked": "2026-11-03"}
+        ]},
         "plus": {"name": "Plus", "terms": [
-          {"weight": 1}
+          {"usdMonth": 20, "weight": 1, "source": "https://learn.chatgpt.com/docs/pricing", "checked": "2026-11-03"}
         ]},
         "team": {"name": "Business", "terms": [
-          {"weight": 1}
+          {"usdMonth": 25, "weight": 1, "note": "Per seat, billed monthly; $20 billed annually", "source": "https://learn.chatgpt.com/docs/pricing", "checked": "2026-11-03"}
         ]},
         "self_serve_business_prolite": {"name": "Business Premium", "terms": [
           {"weight": 5, "note": "A Pro 100's allowance"},
-          {"from": "2026-10-29", "weight": 10, "note": "Doubled with every Pro tier", "source": "https://x.com/thsottiaux/status/2115850175868727621", "checked": "2026-11-03"}
+          {"from": "2026-10-29", "usdMonth": 125, "weight": 10, "note": "Doubled with every Pro tier. Per seat, billed monthly ($100 annually), no 5-hour limit; price from chatgpt.com/pricing", "source": "https://x.com/thsottiaux/status/2115850175868727621", "checked": "2026-11-03"}
         ]},
         "prolite": {"name": "Pro 100", "terms": [
           {"usdMonth": 100, "weight": 5, "note": "Sold as Pro 5x until 2026-09-30", "source": "https://claudemax.shop/en/blog/chatgpt-pro-renamed-standard-and-more", "checked": "2026-11-03"},
@@ -55,38 +58,47 @@
       "unit": "pro",
       "pricing": {"url": "https://cursor.com/pricing", "rendered": "server", "figures": [0, 8, 30, 100, 200]},
       "plans": {
-        "pro": {"name": "Pro", "terms": [{"weight": 1}]},
+        "pro": {"name": "Pro", "terms": [{"usdMonth": 20, "weight": 1, "note": "Legacy since 2026-10-12: kept by existing subscribers", "source": "https://www.nocode.mba/articles/cursor-pricing", "checked": "2026-11-03"}]},
         "pro_student": {"name": "Pro (student)", "terms": [{"weight": 1}]},
-        "pro_plus": {"name": "Pro+", "terms": [{"weight": 3, "note": "Sold as 3x Pro's Agent limits"}]},
-        "ultra": {"name": "Ultra", "terms": [{"weight": 20, "note": "Sold as 20x Pro's Agent limits"}]}
+        "pro_plus": {"name": "Pro+", "terms": [{"usdMonth": 60, "weight": 3, "note": "Sold as 3x Pro's Agent limits; legacy since 2026-10-12", "source": "https://www.nocode.mba/articles/cursor-pricing", "checked": "2026-11-03"}]},
+        "ultra": {"name": "Ultra", "terms": [{"usdMonth": 200, "weight": 20, "note": "Sold as 20x Pro's Agent limits; legacy since 2026-10-12, not the X Subscription's Ultra", "source": "https://www.nocode.mba/articles/cursor-pricing", "checked": "2026-11-03"}]},
+        "x_plus": {"name": "Plus", "unit": "x_plus", "terms": [{"from": "2026-10-12", "usdMonth": 8, "weight": 1, "note": "The X Subscription, usage shared with Grok", "source": "https://www.nxcode.io/resources/news/cursor-ai-pricing-plans-guide-2026", "checked": "2026-11-03"}]},
+        "x_premium": {"name": "Premium", "unit": "x_plus", "terms": [{"from": "2026-10-12", "usdMonth": 30, "weight": 4, "source": "https://www.nxcode.io/resources/news/cursor-ai-pricing-plans-guide-2026", "checked": "2026-11-03"}]},
+        "x_super": {"name": "Super", "unit": "x_plus", "terms": [{"from": "2026-10-12", "usdMonth": 100, "weight": 15, "source": "https://www.nxcode.io/resources/news/cursor-ai-pricing-plans-guide-2026", "checked": "2026-11-03"}]},
+        "x_ultra": {"name": "Ultra", "unit": "x_plus", "terms": [{"from": "2026-10-12", "usdMonth": 200, "weight": 50, "source": "https://www.nxcode.io/resources/news/cursor-ai-pricing-plans-guide-2026", "checked": "2026-11-03"}]}
       }
     },
     "grok": {
       "unit": "price",
       "pricing": {"url": "https://x.ai/pricing", "rendered": "server", "figures": [0, 8, 30, 100, 200]},
       "plans": {
-        "supergrok": {"name": "SuperGrok", "terms": [{"usdMonth": 30, "weight": 3, "note": "Weighed by price per $10: xAI sells no multiple"}]},
-        "supergrok_plus": {"name": "SuperGrok Plus", "terms": [{"usdMonth": 100, "weight": 10, "note": "Weighed by price per $10"}]},
-        "supergrok_heavy": {"name": "SuperGrok Heavy", "terms": [{"usdMonth": 300, "weight": 30, "note": "Weighed by price per $10"}]}
+        "supergrok_lite": {"name": "SuperGrok Lite", "terms": [{"usdMonth": 10, "weight": 1, "note": "Weighed by price per $10; legacy since 2026-10-12", "source": "https://felloai.com/grok-pricing/", "checked": "2026-11-03"}]},
+        "supergrok": {"name": "SuperGrok", "terms": [{"usdMonth": 30, "weight": 3, "note": "Weighed by price per $10: xAI sold no multiple; legacy since 2026-10-12", "source": "https://felloai.com/grok-pricing/", "checked": "2026-11-03"}]},
+        "supergrok_plus": {"name": "SuperGrok Plus", "terms": [{"usdMonth": 100, "weight": 10, "note": "Weighed by price per $10; legacy since 2026-10-12", "source": "https://felloai.com/grok-pricing/", "checked": "2026-11-03"}]},
+        "supergrok_heavy": {"name": "SuperGrok Heavy", "terms": [{"usdMonth": 300, "weight": 30, "note": "Weighed by price per $10; legacy since 2026-10-12", "source": "https://felloai.com/grok-pricing/", "checked": "2026-11-03"}]},
+        "x_plus": {"name": "Plus", "unit": "x_plus", "terms": [{"from": "2026-10-12", "usdMonth": 8, "weight": 1, "note": "The X Subscription, usage shared with Cursor", "source": "https://felloai.com/grok-pricing/", "checked": "2026-11-03"}]},
+        "x_premium": {"name": "Premium", "unit": "x_plus", "terms": [{"from": "2026-10-12", "usdMonth": 30, "weight": 4, "source": "https://felloai.com/grok-pricing/", "checked": "2026-11-03"}]},
+        "x_super": {"name": "Super", "unit": "x_plus", "terms": [{"from": "2026-10-12", "usdMonth": 100, "weight": 15, "source": "https://felloai.com/grok-pricing/", "checked": "2026-11-03"}]},
+        "x_ultra": {"name": "Ultra", "unit": "x_plus", "terms": [{"from": "2026-10-12", "usdMonth": 200, "weight": 50, "source": "https://felloai.com/grok-pricing/", "checked": "2026-11-03"}]}
       }
     },
     "kimi": {
       "unit": "plus",
       "pricing": {"url": "https://www.kimi.ai/membership/pricing", "rendered": "client"},
       "plans": {
-        "plus": {"name": "Plus", "terms": [{"weight": 1}]},
-        "pro": {"name": "Pro", "terms": [{"weight": 2}]},
-        "max": {"name": "Max", "terms": [{"weight": 5}]},
-        "ultra": {"name": "Ultra", "terms": [{"weight": 10}]}
+        "plus": {"name": "Plus", "terms": [{"usdMonth": 19, "weight": 1, "source": "https://www.kimi.ai/membership/pricing", "checked": "2026-11-03"}]},
+        "pro": {"name": "Pro", "terms": [{"usdMonth": 39, "weight": 2, "source": "https://www.kimi.ai/membership/pricing", "checked": "2026-11-03"}]},
+        "max": {"name": "Max", "terms": [{"usdMonth": 99, "weight": 5, "source": "https://www.kimi.ai/membership/pricing", "checked": "2026-11-03"}]},
+        "ultra": {"name": "Ultra", "terms": [{"usdMonth": 199, "weight": 10, "source": "https://www.kimi.ai/membership/pricing", "checked": "2026-11-03"}]}
       }
     },
     "glm": {
       "unit": "thousand weekly credits",
       "pricing": {"url": "https://z.ai/subscribe", "rendered": "client"},
       "plans": {
-        "lite": {"name": "Lite", "terms": [{"weight": 10}]},
-        "pro": {"name": "Pro", "terms": [{"weight": 60}]},
-        "max": {"name": "Max", "terms": [{"weight": 140}]}
+        "lite": {"name": "Lite", "terms": [{"usdMonth": 18, "weight": 10, "note": "10,000 credits a week", "source": "https://z.ai/subscribe", "checked": "2026-11-03"}]},
+        "pro": {"name": "Pro", "terms": [{"usdMonth": 80, "weight": 60, "note": "6x Lite", "source": "https://z.ai/subscribe", "checked": "2026-11-03"}]},
+        "max": {"name": "Max", "terms": [{"usdMonth": 168, "weight": 140, "note": "14x Lite", "source": "https://z.ai/subscribe", "checked": "2026-11-03"}]}
       }
     },
     "opencode": {

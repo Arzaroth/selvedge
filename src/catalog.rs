@@ -46,6 +46,10 @@ pub struct Pricing {
 #[derive(Debug, Deserialize)]
 pub struct Plan {
     pub name: String,
+    /// What its weight counts when not the provider's `unit`: a provider
+    /// that sells a new line of plans beside its legacy ones weighs each line
+    /// in its own base plan, and the two do not add up.
+    pub unit: Option<String>,
     /// Oldest first.
     pub terms: Vec<Term>,
 }
@@ -195,6 +199,29 @@ mod tests {
         ] {
             assert_eq!(weight("codex", id), Some(w), "{id}");
         }
+    }
+
+    #[test]
+    fn the_x_subscription_weighs_in_its_own_unit_beside_the_legacy_plans() {
+        for provider in ["cursor", "grok"] {
+            let p = &catalog().providers[provider];
+            for (id, w) in [
+                ("x_plus", 1.0),
+                ("x_premium", 4.0),
+                ("x_super", 15.0),
+                ("x_ultra", 50.0),
+            ] {
+                assert_eq!(
+                    p.plans[id].unit.as_deref(),
+                    Some("x_plus"),
+                    "{provider}/{id}"
+                );
+                assert_eq!(weight(provider, id), Some(w), "{provider}/{id}");
+                assert_eq!(p.plans[id].on("2026-10-11"), None, "{provider}/{id}");
+            }
+        }
+        assert_eq!(plan("cursor", "ultra").unwrap().unit, None);
+        assert_eq!(weight("cursor", "ultra"), Some(20.0));
     }
 
     #[test]
