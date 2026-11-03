@@ -1,0 +1,105 @@
+{
+  "providers": {
+    "claude": {
+      "unit": "pro",
+      "pricing": {"url": "https://claude.com/pricing", "rendered": "server", "figures": [0, 17, 20, 25, 100, 125, 200]},
+      "plans": {
+        "pro": {"name": "Pro", "terms": [
+          {"usdMonth": 20, "weight": 1, "source": "https://claude.com/pricing", "checked": "2026-11-03"}
+        ]},
+        "max": {"name": "Max", "terms": [
+          {"usdMonth": 100, "weight": 5, "note": "Sold as Max 5x until 2026-10-30", "source": "https://claude.com/pricing", "checked": "2026-11-03"}
+        ]},
+        "ultra": {"name": "Ultra", "terms": [
+          {"usdMonth": 200, "weight": 10, "note": "Sold as Max 20x until 2026-10-30; the 20x was its 5-hour session, its week is 10x a Pro's", "source": "https://claude.com/pricing", "checked": "2026-11-03"},
+          {"from": "2026-10-30", "usdMonth": 200, "weight": 10, "note": "Renamed Ultra, no 5-hour limit once verified, weekly limit unchanged", "source": "https://x.com/claudeai/status/2116220869479428500", "checked": "2026-11-03"}
+        ]},
+        "team_standard": {"name": "Team Standard", "terms": [
+          {"usdMonth": 25, "weight": 1.25, "source": "https://claude.com/pricing", "checked": "2026-11-03"}
+        ]},
+        "team_premium": {"name": "Team Premium", "terms": [
+          {"usdMonth": 125, "weight": 6.25, "note": "5x a Standard seat", "source": "https://claude.com/pricing", "checked": "2026-11-03"}
+        ]}
+      }
+    },
+    "codex": {
+      "unit": "plus",
+      "pricing": {"url": "https://chatgpt.com/pricing/", "rendered": "client"},
+      "plans": {
+        "plus": {"name": "Plus", "terms": [
+          {"weight": 1}
+        ]},
+        "team": {"name": "Business", "terms": [
+          {"weight": 1}
+        ]},
+        "self_serve_business_prolite": {"name": "Business Premium", "terms": [
+          {"weight": 5, "note": "A Pro 100's allowance"},
+          {"from": "2026-10-29", "weight": 10, "note": "Doubled with every Pro tier", "source": "https://x.com/thsottiaux/status/2115850175868727621", "checked": "2026-11-03"}
+        ]},
+        "prolite": {"name": "Pro 100", "terms": [
+          {"usdMonth": 100, "weight": 5, "note": "Sold as Pro 5x until 2026-09-30", "source": "https://claudemax.shop/en/blog/chatgpt-pro-renamed-standard-and-more", "checked": "2026-11-03"},
+          {"from": "2026-10-29", "usdMonth": 100, "weight": 10, "note": "Every Pro tier doubled", "source": "https://x.com/thsottiaux/status/2115850175868727621", "checked": "2026-11-03"}
+        ]},
+        "pro": {"name": "Pro 200", "terms": [
+          {"usdMonth": 200, "weight": 20, "note": "Sold as Pro 20x until 2026-09-30", "source": "https://claudemax.shop/en/blog/chatgpt-pro-renamed-standard-and-more", "checked": "2026-11-03"},
+          {"from": "2026-09-30", "usdMonth": 200, "weight": 10, "note": "Reopened at half the old allowance for new subscribers; existing ones kept 20x until 2026-10-29", "source": "https://x.com/thsottiaux/status/2104823812042940713", "checked": "2026-11-03"},
+          {"from": "2026-10-29", "usdMonth": 200, "weight": 20, "note": "Every Pro tier doubled, and the reduction for existing subscribers dropped", "source": "https://x.com/thsottiaux/status/2115850175868727621", "checked": "2026-11-03"}
+        ]},
+        "promax": {"name": "Pro 500", "terms": [
+          {"from": "2026-09-29", "usdMonth": 500, "weight": 25, "note": "Launched at DevDay", "source": "https://claudemax.shop/en/blog/chatgpt-pro-renamed-standard-and-more", "checked": "2026-11-03"},
+          {"from": "2026-10-29", "usdMonth": 500, "weight": 50, "note": "Every Pro tier doubled", "source": "https://x.com/thsottiaux/status/2115850175868727621", "checked": "2026-11-03"}
+        ]}
+      }
+    },
+    "cursor": {
+      "unit": "pro",
+      "pricing": {"url": "https://cursor.com/pricing", "rendered": "server", "figures": [0, 8, 30, 100, 200]},
+      "plans": {
+        "pro": {"name": "Pro", "terms": [{"weight": 1}]},
+        "pro_student": {"name": "Pro (student)", "terms": [{"weight": 1}]},
+        "pro_plus": {"name": "Pro+", "terms": [{"weight": 3, "note": "Sold as 3x Pro's Agent limits"}]},
+        "ultra": {"name": "Ultra", "terms": [{"weight": 20, "note": "Sold as 20x Pro's Agent limits"}]}
+      }
+    },
+    "grok": {
+      "unit": "price",
+      "pricing": {"url": "https://x.ai/pricing", "rendered": "server", "figures": [0, 8, 30, 100, 200]},
+      "plans": {
+        "supergrok": {"name": "SuperGrok", "terms": [{"usdMonth": 30, "weight": 3, "note": "Weighed by price per $10: xAI sells no multiple"}]},
+        "supergrok_plus": {"name": "SuperGrok Plus", "terms": [{"usdMonth": 100, "weight": 10, "note": "Weighed by price per $10"}]},
+        "supergrok_heavy": {"name": "SuperGrok Heavy", "terms": [{"usdMonth": 300, "weight": 30, "note": "Weighed by price per $10"}]}
+      }
+    },
+    "kimi": {
+      "unit": "plus",
+      "pricing": {"url": "https://www.kimi.ai/membership/pricing", "rendered": "client"},
+      "plans": {
+        "plus": {"name": "Plus", "terms": [{"weight": 1}]},
+        "pro": {"name": "Pro", "terms": [{"weight": 2}]},
+        "max": {"name": "Max", "terms": [{"weight": 5}]},
+        "ultra": {"name": "Ultra", "terms": [{"weight": 10}]}
+      }
+    },
+    "glm": {
+      "unit": "thousand weekly credits",
+      "pricing": {"url": "https://z.ai/subscribe", "rendered": "client"},
+      "plans": {
+        "lite": {"name": "Lite", "terms": [{"weight": 10}]},
+        "pro": {"name": "Pro", "terms": [{"weight": 60}]},
+        "max": {"name": "Max", "terms": [{"weight": 140}]}
+      }
+    },
+    "opencode": {
+      "unit": "go",
+      "pricing": {"url": "https://opencode.ai/console/go", "rendered": "server", "figures": [10, 15, 40, 60]},
+      "plans": {
+        "go": {"name": "Go", "terms": [
+          {"usdMonth": 10, "weight": 1, "source": "https://opencode.ai/console/go", "checked": "2026-11-03"}
+        ]},
+        "go_plus": {"name": "Go Plus", "terms": [
+          {"usdMonth": 40, "weight": 4, "note": "Four times Go's limits on every model", "source": "https://opencode.ai/console/go", "checked": "2026-11-03"}
+        ]}
+      }
+    }
+  }
+}

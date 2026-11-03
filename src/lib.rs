@@ -15,9 +15,11 @@
 //! and remuda both draw. [`brands`] is the third: each provider's mark and
 //! colour, so the two draw a provider alike. [`usage`] is the fourth: the
 //! records remuda writes and TokenGauge reads to tell which login spent what,
-//! and the export TokenGauge prints for remuda's usage page.
+//! and the export TokenGauge prints for remuda's usage page. [`catalog`] is
+//! what each subscription costs and weighs, and since when.
 
 pub mod brands;
+pub mod catalog;
 pub mod frontend;
 pub mod plans;
 pub mod proc;
