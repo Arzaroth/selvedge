@@ -112,3 +112,97 @@ pub fn day(ms: i64) -> String {
     let y = yoe + era * 400 + i64::from(m <= 2);
     format!("{y:04}-{m:02}-{d:02}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_table_parses_and_every_plan_has_a_term() {
+        for (provider, p) in &catalog().providers {
+            assert!(!p.plans.is_empty(), "{provider}");
+            for (id, plan) in &p.plans {
+                assert!(!plan.terms.is_empty(), "{provider}/{id}");
+            }
+        }
+    }
+
+    #[test]
+    fn terms_are_dated_in_order_and_only_the_first_is_open_ended() {
+        for (provider, p) in &catalog().providers {
+            for (id, plan) in &p.plans {
+                let dated: Vec<&str> = plan
+                    .terms
+                    .iter()
+                    .filter_map(|t| t.from.as_deref())
+                    .collect();
+                let open = plan.terms.len() - dated.len();
+                assert!(
+                    open <= 1 && plan.terms.iter().skip(open).all(|t| t.from.is_some()),
+                    "{provider}/{id}"
+                );
+                assert!(dated.windows(2).all(|w| w[0] < w[1]), "{provider}/{id}");
+                assert!(
+                    dated.iter().all(|d| d.len() == 10 && day_parts(d)),
+                    "{provider}/{id}"
+                );
+            }
+        }
+    }
+
+    fn day_parts(day: &str) -> bool {
+        let parts: Vec<&str> = day.split('-').collect();
+        parts.len() == 3 && parts.iter().all(|p| p.bytes().all(|b| b.is_ascii_digit()))
+    }
+
+    #[test]
+    fn a_sourced_term_says_when_it_was_read() {
+        for p in catalog().providers.values() {
+            for plan in p.plans.values() {
+                for t in &plan.terms {
+                    assert_eq!(t.source.is_some(), t.checked.is_some(), "{}", plan.name);
+                    assert!(
+                        t.usd_month.is_none_or(|u| u > 0.0) && t.weight.is_none_or(|w| w > 0.0)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_week_reads_the_term_in_force_that_day() {
+        let pro = plan("codex", "pro").unwrap();
+        assert_eq!(pro.on("2026-09-01").unwrap().weight, Some(20.0));
+        assert_eq!(pro.on("2026-10-15").unwrap().weight, Some(10.0));
+        assert_eq!(pro.on("2026-10-29").unwrap().weight, Some(20.0));
+        assert_eq!(pro.current().unwrap().usd_month, Some(200.0));
+        let promax = plan("codex", "promax").unwrap();
+        assert_eq!(promax.on("2026-09-28"), None);
+        assert_eq!(weight("codex", "promax"), Some(50.0));
+        assert_eq!(weight("codex", "nope"), None);
+        assert_eq!(weight("nope", "pro"), None);
+    }
+
+    #[test]
+    fn the_codex_weights_are_what_tokengauge_weighs_now() {
+        for (id, w) in [
+            ("plus", 1.0),
+            ("team", 1.0),
+            ("prolite", 10.0),
+            ("self_serve_business_prolite", 10.0),
+            ("pro", 20.0),
+            ("promax", 50.0),
+        ] {
+            assert_eq!(weight("codex", id), Some(w), "{id}");
+        }
+    }
+
+    #[test]
+    fn a_millisecond_falls_on_its_utc_day() {
+        assert_eq!(day(0), "1970-01-01");
+        assert_eq!(day(-1), "1969-12-31");
+        assert_eq!(day(1_793_750_400_000 - 1), "2026-11-03");
+        assert_eq!(day(1_793_750_400_000), "2026-11-04");
+        assert_eq!(day(951_782_400_000), "2000-02-29");
+    }
+}
