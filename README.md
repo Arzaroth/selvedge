@@ -104,8 +104,10 @@ Ultra) and `MaxPlan::weight` is its weekly allowance against a Pro's, 5 and
 
 `selvedge::catalog` is every plan the projects know, by the id its provider's
 API names it with, as a list of dated terms: the monthly list price in US
-dollars and the weight against the provider's base plan, with its source and
-the day it was read where one was recorded. A plan changes on a date - OpenAI doubled every Pro
+dollars and the weight against the provider's base plan (or the plan's own
+`unit` when it belongs to another line, such as the X Subscription beside
+Cursor's and Grok's legacy plans), with its source and the day it was read
+where one was recorded. A plan changes on a date - OpenAI doubled every Pro
 tier on 2026-10-29 - so `Plan::on(day)` gives the term a past week was under
 and `weight(provider, id)` the one in force now. The table is
 `src/catalog.json`, compiled in; a figure nobody has verified is left out

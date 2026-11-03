@@ -23,7 +23,8 @@ anything breaking is two repositories.
   beside the legacy ones their subscribers keep. A plan can weigh in its own
   `unit` when its line is not the provider's base one.
 - **A daily canary** compares each pricing page's dollar figures with the
-  catalog's and opens an issue when one moves.
+  catalog's and opens an issue when one moves, except on pages that fill their
+  prices in with a script, which it lists as unchecked.
 
 ### Changed
 
