@@ -10,6 +10,28 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Added
+
+- **`catalog`, what each subscription costs and weighs, and since when.**
+  Every plan TokenGauge and remuda know, by the id its provider's API names it
+  with, as dated terms: monthly list price, weight against the provider's base
+  plan, and the source where one was recorded. `Plan::on` reads the term a past day
+  was under. It is seeded with the ChatGPT Pro history (5x and 20x, the
+  renames, Pro 500, the Pro 200 cut for new subscribers and the 29 October
+  doubling) and Claude's Max and Ultra, with each provider's current list
+  prices, and Cursor's and Grok's X Subscription plans (12 October 2026)
+  beside the legacy ones their subscribers keep. A plan can weigh in its own
+  `unit` when its line is not the provider's base one.
+- **A daily canary** compares each pricing page's dollar figures with the
+  catalog's and opens an issue when one moves, except on pages that fill their
+  prices in with a script, which it lists as unchecked.
+
+### Changed
+
+- `Seat::weight` and `MaxPlan::weight` read the catalog. `TEAM_STANDARD_WEIGHT`
+  and `TEAM_PREMIUM_WEIGHT` are gone: `Seat::Standard.weight()` and
+  `Seat::Premium.weight()` say the same.
+
 ## [0.12.0] - 2026-11-01
 
 ### Added

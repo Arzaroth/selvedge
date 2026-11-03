@@ -140,13 +140,6 @@ pub fn segment_widths(weights: &[f64]) -> Vec<f64> {
     }
 }
 
-/// A Claude Team seat's weight against a Pro: a standard seat is sold at
-/// 1.25x Pro's per-session allowance, a premium one at 6.25x
-/// (support.claude.com, "What is the Team plan?").
-pub const TEAM_STANDARD_WEIGHT: f64 = 1.25;
-/// See [`TEAM_STANDARD_WEIGHT`].
-pub const TEAM_PREMIUM_WEIGHT: f64 = 6.25;
-
 /// The seat a Claude Team login holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Seat {
@@ -155,13 +148,23 @@ pub enum Seat {
 }
 
 impl Seat {
-    /// What the seat weighs, in Pros.
-    pub fn weight(self) -> f64 {
+    /// Its id in [`crate::catalog`].
+    pub fn id(self) -> &'static str {
         match self {
-            Seat::Standard => TEAM_STANDARD_WEIGHT,
-            Seat::Premium => TEAM_PREMIUM_WEIGHT,
+            Seat::Standard => "team_standard",
+            Seat::Premium => "team_premium",
         }
     }
+
+    /// What the seat weighs, in Pros: a standard seat is sold at 1.25x Pro's
+    /// allowance, a premium one at 5x that.
+    pub fn weight(self) -> f64 {
+        claude_weight(self.id())
+    }
+}
+
+fn claude_weight(id: &str) -> f64 {
+    crate::catalog::weight("claude", id).expect("the catalog weighs every Claude plan")
 }
 
 /// A Claude Max plan. The tiers still carry the multipliers the plans were
@@ -184,12 +187,17 @@ impl MaxPlan {
         }
     }
 
+    /// Its id in [`crate::catalog`].
+    pub fn id(self) -> &'static str {
+        match self {
+            MaxPlan::Max => "max",
+            MaxPlan::Ultra => "ultra",
+        }
+    }
+
     /// What its weekly allowance weighs, in Pros.
     pub fn weight(self) -> f64 {
-        match self {
-            MaxPlan::Max => 5.0,
-            MaxPlan::Ultra => 10.0,
-        }
+        claude_weight(self.id())
     }
 }
 
