@@ -88,8 +88,9 @@ stretch its weight buys, a tenth of the bar at least. Only the numbers are
 here: the label, the tone and any "estimate" badge are the caller's. It
 needs no feature and links nothing.
 
-What a plan weighs is the caller's too, except for a Claude Team seat, which
-both projects read off the same fields and used to read differently.
+What a plan weighs comes from the catalog below. Which plan a login holds is
+the caller's to read, except for a Claude Team seat, which both projects read
+off the same fields and used to read differently.
 `team_seat` takes the profile's `seatTier` and every rate-limit tier the login
 carries, and calls a seat premium when any tier names an `Nx` - a premium seat
 has been reported as `team_tier_1`, so the seat tier's name alone is not
@@ -98,6 +99,23 @@ the `N` of a tier such as `default_claude_max_20x`. That `N` is not what a Max
 plan weighs: `max_plan` names the plan a tier is sold as (`_5x` is Max, `_20x`
 Ultra) and `MaxPlan::weight` is its weekly allowance against a Pro's, 5 and
 10.
+
+## What a plan costs and weighs
+
+`selvedge::catalog` is every plan the projects know, by the id its provider's
+API names it with, as a list of dated terms: the monthly list price in US
+dollars and the weight against the provider's base plan, each with its source
+and the day it was read. A plan changes on a date - OpenAI doubled every Pro
+tier on 2026-10-29 - so `Plan::on(day)` gives the term a past week was under
+and `weight(provider, id)` the one in force now. The table is
+`src/catalog.json`, compiled in; a figure nobody has verified is left out
+rather than guessed.
+
+`scripts/catalog-canary.py` fetches each provider's pricing page and compares
+the dollar figures on it with the ones the catalog last saw there. The `Catalog
+canary` workflow runs it daily and opens an issue when a figure moves. A page
+that fills its prices in with a script cannot be checked this way and is listed
+as such, and a page that refuses the fetch is reported unread, not changed.
 
 ## Each provider's mark
 
