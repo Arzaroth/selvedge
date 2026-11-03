@@ -10,6 +10,8 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-03
+
 ### Added
 
 - **`catalog`, what each subscription costs and weighs, and since when.**
