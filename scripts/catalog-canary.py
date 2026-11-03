@@ -23,7 +23,7 @@ def figures(page):
     text = re.sub(r"(?s)<(script|style)[^>]*>.*?</\1>", " ", page)
     text = html.unescape(re.sub(r"<[^>]+>", " ", text))
     found = set()
-    for m in re.finditer(r"\$\s?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)", text):
+    for m in re.finditer(r"\$\s?(\d+(?:,\d{3})*(?:\.\d+)?)", text):
         found.add(float(m.group(1).replace(",", "")))
     return found
 
