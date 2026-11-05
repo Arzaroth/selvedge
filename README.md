@@ -127,7 +127,8 @@ the same in TokenGauge's panels and on remuda's page. A mark is an SVG in
 opencode) has no colour and is drawn in the caller's foreground, so it shows on
 a dark panel and a light page alike. `mark_color` is what to tint a mark in:
 Kimi keeps its blue for accents but draws its K in the foreground, beside the
-blue dot the mark carries itself. It needs no feature and links nothing.
+blue dot the mark carries itself, and Codex, Cursor and OpenRouter keep their
+colour for accents and draw their black-and-white marks in the foreground. It needs no feature and links nothing.
 
 ```rust
 let kimi = selvedge::brands::brand("kimi").unwrap();

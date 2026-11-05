@@ -10,6 +10,15 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Changed
+
+- **Codex and OpenRouter wear their current marks**: Codex's cloud with a
+  prompt in place of OpenAI's knot, and OpenRouter's loop in place of its old
+  arrows, both from lobe-icons.
+- **Codex, Cursor and OpenRouter draw their mark in the foreground**
+  (`mark_color` is `None`) and keep their colour as an accent. Their marks are
+  black and white, and tinting them read as a recoloured logo.
+
 ## [0.13.0] - 2026-11-03
 
 ### Added
