@@ -10,6 +10,8 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-05
+
 ### Changed
 
 - **Codex and OpenRouter wear their current marks**: Codex's cloud with a
