@@ -4,7 +4,9 @@
 //! fixes is a part of the brand that is never drawn any other way, Kimi's blue
 //! dot. A brand that is black and white has no colour: the caller draws it in
 //! its own foreground, which is what keeps it visible on a dark panel and a
-//! light page alike.
+//! light page alike. A brand whose mark is black and white but which the
+//! callers still give an accent (Codex, Cursor, OpenRouter) keeps the colour
+//! and draws the mark in the foreground.
 
 /// One provider's mark and colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,7 +18,8 @@ pub struct Brand {
     /// `#RRGGBB`, or `None` for a brand drawn in the caller's foreground.
     pub color: Option<&'static str>,
     /// The mark is drawn in the caller's foreground even though the brand has
-    /// a colour: Kimi's K is black beside its blue dot.
+    /// a colour: Kimi's K is black beside its blue dot, and Codex's, Cursor's
+    /// and OpenRouter's marks are black and white beside the accent.
     pub foreground_mark: bool,
 }
 
@@ -44,13 +47,13 @@ pub const BRANDS: &[Brand] = &[
         id: "codex",
         svg: include_str!("../assets/providers/codex.svg"),
         color: Some("#74AA9C"),
-        foreground_mark: false,
+        foreground_mark: true,
     },
     Brand {
         id: "cursor",
         svg: include_str!("../assets/providers/cursor.svg"),
         color: Some("#6C7086"),
-        foreground_mark: false,
+        foreground_mark: true,
     },
     Brand {
         id: "glm",
@@ -80,7 +83,7 @@ pub const BRANDS: &[Brand] = &[
         id: "openrouter",
         svg: include_str!("../assets/providers/openrouter.svg"),
         color: Some("#6467F2"),
-        foreground_mark: false,
+        foreground_mark: true,
     },
 ];
 
@@ -130,5 +133,14 @@ mod tests {
     fn kimi_draws_its_k_in_the_foreground_and_claude_in_its_colour() {
         assert_eq!(brand("kimi").unwrap().mark_color(), None);
         assert_eq!(brand("claude").unwrap().mark_color(), Some("#DE7356"));
+    }
+
+    #[test]
+    fn a_black_and_white_mark_keeps_its_accent_and_draws_in_the_foreground() {
+        for id in ["codex", "cursor", "openrouter"] {
+            let b = brand(id).unwrap();
+            assert!(b.color.is_some(), "{id}");
+            assert_eq!(b.mark_color(), None, "{id}");
+        }
     }
 }
