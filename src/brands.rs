@@ -98,6 +98,12 @@ pub const BRANDS: &[Brand] = &[
         foreground_mark: false,
     },
     Brand {
+        id: "muse",
+        svg: include_str!("../assets/providers/muse.svg"),
+        color: Some("#0866FF"),
+        foreground_mark: false,
+    },
+    Brand {
         id: "opencode",
         svg: include_str!("../assets/providers/opencode.svg"),
         color: None,
