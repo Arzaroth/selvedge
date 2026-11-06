@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="selvedge">
+  <defs>
+    <pattern id="twill" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4" height="4" fill="#223f6e"/><rect width="1.600" height="4" fill="#2f5288"/></pattern>
+    <clipPath id="c"><rect width="64" height="64" rx="14"/></clipPath></defs>
+  <g clip-path="url(#c)">
+    <rect width="64" height="64" fill="url(#twill)"/>
+    <rect x="38" width="26" height="64" fill="#f4efe3"/>
+    <rect x="46" width="5" height="64" fill="#c92f33"/>
+    <path d="M38 0v64" stroke="#14294d" stroke-width="2"/>
+    <path d="M32 2v60" stroke="#e8b24c" stroke-width="2.500" stroke-dasharray="5 3.500"/>
+  </g>
+  <rect x=".5" y=".5" width="63" height="63" rx="13.500" fill="none" stroke="#fff" stroke-opacity=".08"/>
+</svg>
