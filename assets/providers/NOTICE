@@ -1,5 +1,5 @@
-Every provider mark in this directory but codex.svg, kimi.svg, openrouter.svg
-and opencode.svg is copied
+Every provider mark in this directory but antigravity.svg, codex.svg, copilot.svg,
+deepseek.svg, kimi.svg, minimax.svg, openrouter.svg and opencode.svg is copied
 from CodexBar (https://github.com/steipete/CodexBar), from
 Sources/CodexBar/Resources/ProviderIcon-*.svg, with a white fill turned into
 currentColor, and used here under the same MIT license:
@@ -40,3 +40,8 @@ https://github.com/sst/opencode), its background tile dropped.
 
 The brand marks remain the property of their respective owners and are used
 here under nominative fair use to identify the corresponding provider.
+
+antigravity.svg, copilot.svg, deepseek.svg and minimax.svg are Omarchy's
+(https://github.com/omacom/omarchy, shell/plugins/agents/assets, MIT licensed),
+with the fill turned into currentColor. The marks themselves belong to Google,
+GitHub, DeepSeek and MiniMax respectively.
