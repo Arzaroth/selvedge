@@ -10,6 +10,8 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-06
+
 ### Added
 
 - Brand marks for Antigravity, Copilot, DeepSeek, MiniMax and Muse.
