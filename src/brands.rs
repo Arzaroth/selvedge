@@ -38,6 +38,12 @@ impl Brand {
 /// Every provider with a mark, ordered by id.
 pub const BRANDS: &[Brand] = &[
     Brand {
+        id: "antigravity",
+        svg: include_str!("../assets/providers/antigravity.svg"),
+        color: Some("#4285F4"),
+        foreground_mark: false,
+    },
+    Brand {
         id: "claude",
         svg: include_str!("../assets/providers/claude.svg"),
         color: Some("#DE7356"),
@@ -50,10 +56,22 @@ pub const BRANDS: &[Brand] = &[
         foreground_mark: true,
     },
     Brand {
+        id: "copilot",
+        svg: include_str!("../assets/providers/copilot.svg"),
+        color: Some("#8534F3"),
+        foreground_mark: false,
+    },
+    Brand {
         id: "cursor",
         svg: include_str!("../assets/providers/cursor.svg"),
         color: Some("#6C7086"),
         foreground_mark: true,
+    },
+    Brand {
+        id: "deepseek",
+        svg: include_str!("../assets/providers/deepseek.svg"),
+        color: Some("#4D6BFE"),
+        foreground_mark: false,
     },
     Brand {
         id: "glm",
@@ -72,6 +90,12 @@ pub const BRANDS: &[Brand] = &[
         svg: include_str!("../assets/providers/kimi.svg"),
         color: Some("#1783FF"),
         foreground_mark: true,
+    },
+    Brand {
+        id: "minimax",
+        svg: include_str!("../assets/providers/minimax.svg"),
+        color: Some("#F23F5D"),
+        foreground_mark: false,
     },
     Brand {
         id: "opencode",
