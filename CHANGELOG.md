@@ -10,6 +10,13 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Added
+
+- **The usage export by the hour**: `usage::export::BY_HOUR` (`--by-hour`)
+  asks for a row per hour of the record instead of per local day, each with
+  `from` and `until`, so a reader can split spend at the instant a quota
+  window reset.
+
 ## [0.15.0] - 2026-11-06
 
 ### Added
