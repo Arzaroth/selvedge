@@ -149,7 +149,7 @@ declared here once, with its writer and its reader:
 | --- | --- | --- | --- |
 | `usage::ledger` | `<store>/.attribution.jsonl` | remuda, on a switch, a login change it notices, and each `remuda run` session | TokenGauge, to give each billed request a login |
 | `usage::requests` | `<store>/.proxy-requests.jsonl` (and `.1` once rotated at 8 MiB) | remuda's proxy, one line per request | TokenGauge, for spend no transcript holds; remuda, for its request views |
-| `usage::export` | stdout of `tokengauge --usage-json` | TokenGauge | remuda's Usage page |
+| `usage::export` | stdout of `tokengauge --usage-json` (`--by-hour` for rows by the hour) | TokenGauge | remuda's Usage page, and its Value view by the hour |
 
 `Ledger::login_at` is the rule for a billed request: the login its session ran
 under when a `remuda run` claimed it, else the login the CLI's files held at
