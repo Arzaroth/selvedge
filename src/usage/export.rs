@@ -4,6 +4,11 @@
 //! provider, model, login and source. remuda draws it and never prices a
 //! token itself, so the two cannot disagree on a figure.
 //!
+//! With [`BY_HOUR`] a row is one stretch of the record instead, an hour or a
+//! UTC day it kept only by the day, and says when it ran in
+//! [`Row::from`] and [`Row::until`]. A reader that splits spend at an instant
+//! (a quota window resetting mid-day) asks for that.
+//!
 //! A field is only ever added; anything else is a new [`SCHEMA_VERSION`],
 //! which an older reader refuses rather than misreads.
 
@@ -14,6 +19,7 @@ use super::TokenCounts;
 pub const SCHEMA_VERSION: u32 = 1;
 pub const FLAG: &str = "--usage-json";
 pub const SINCE: &str = "--since";
+pub const BY_HOUR: &str = "--by-hour";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +54,12 @@ pub struct Row {
     #[serde(default)]
     pub login: Option<String>,
     pub source: Source,
+    /// When the row's stretch starts, in ms; only with [`BY_HOUR`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<i64>,
+    /// When it ends, exclusive; only with [`BY_HOUR`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<i64>,
     /// Sessions that started on this row.
     #[serde(default, skip_serializing_if = "super::is_zero")]
     pub sessions: u64,
@@ -132,6 +144,8 @@ mod tests {
                 model: "claude-opus-5-5".into(),
                 login: Some("ba7816bf8f01cfea".into()),
                 source: Source::Proxy,
+                from: None,
+                until: None,
                 sessions: 2,
                 tokens: TokenCounts {
                     input: 1,
@@ -186,6 +200,19 @@ mod tests {
         let text = serde_json::to_string(&export).unwrap();
         assert!(text.contains(r#""login":null,"source""#), "{text}");
         assert!(!text.contains("sessions"), "{text}");
+    }
+
+    #[test]
+    fn a_row_by_the_hour_says_when_it_ran() {
+        let mut export = export();
+        export.rows[0].from = Some(3_600_000);
+        export.rows[0].until = Some(7_200_000);
+        let text = serde_json::to_string(&export).unwrap();
+        assert!(
+            text.contains(r#""source":"proxy","from":3600000,"until":7200000,"sessions""#),
+            "{text}"
+        );
+        assert_eq!(UsageExport::parse(text.as_bytes()).unwrap(), export);
     }
 
     #[test]
