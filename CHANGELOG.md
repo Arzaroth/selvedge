@@ -10,6 +10,8 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-13
+
 ### Added
 
 - **The usage export by the hour**: `usage::export::BY_HOUR` (`--by-hour`)
