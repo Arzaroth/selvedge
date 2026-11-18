@@ -187,10 +187,32 @@ mod tests {
         assert_eq!(stat_start_time("4242 (short) S 1 2"), None);
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn this_process_has_a_start_time() {
         assert!(start_time(std::process::id()).is_some());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_start_time_on_macos_is_microseconds_since_the_epoch() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_micros() as u64;
+        let started = start_time(std::process::id()).unwrap();
+        assert!(
+            started <= now && now - started < 3_600_000_000,
+            "{started} {now}"
+        );
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        assert!(start_time(child.id()).unwrap() >= started);
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(start_time(child.id()), None);
     }
 
     #[cfg(unix)]
