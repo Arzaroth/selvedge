@@ -10,6 +10,12 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+### Added
+
+- `proc::start_time` answers on macOS too, in microseconds since the epoch
+  (`proc_pidinfo`'s `pbi_start_tvsec` and `pbi_start_tvusec`), the value
+  remuda writes as its serve record's `started` there.
+
 ## [0.16.0] - 2026-11-13
 
 ### Added

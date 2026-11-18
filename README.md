@@ -161,7 +161,7 @@ format, and both sides count tokens in it.
 
 `proc::installed` finds a sibling binary the way the installers lay it out
 (`PATH`, then `~/.local/bin`), and `proc::start_time` tells a live process from
-a later one handed the same pid. It needs no feature.
+a later one handed the same pid, on Linux and macOS. It needs no feature.
 
 ## The lock
 

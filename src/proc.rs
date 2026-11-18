@@ -59,13 +59,38 @@ fn installed_in(name: &str, on_path: Option<PathBuf>, home: Option<PathBuf>) -> 
     })
 }
 
-/// When a process started, in clock ticks since boot, which tells it apart
-/// from a later one given the same pid. `None` off Linux or once it is gone.
+/// When a process started, which tells it apart from a later one given the
+/// same pid: clock ticks since boot on Linux, microseconds since the epoch on
+/// macOS. `None` elsewhere or once it is gone.
 /// The command name in the line is cut at 15 bytes, which can split a UTF-8
 /// character, so the line is read as bytes.
+#[cfg(not(target_os = "macos"))]
 pub fn start_time(pid: u32) -> Option<u64> {
     let stat = std::fs::read(Path::new("/proc").join(pid.to_string()).join("stat")).ok()?;
     stat_start_time(&String::from_utf8_lossy(&stat))
+}
+
+#[cfg(target_os = "macos")]
+pub fn start_time(pid: u32) -> Option<u64> {
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    // SAFETY: `info` is as large as the size given, and read only once
+    // proc_pidinfo says it filled it whole.
+    let read = unsafe {
+        libc::proc_pidinfo(
+            pid as libc::c_int,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    if read != size {
+        return None;
+    }
+    // SAFETY: filled above.
+    let info = unsafe { info.assume_init() };
+    Some(info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
 }
 
 /// Field 22 of a `/proc/<pid>/stat` line. The command name in field 2 may hold
@@ -162,10 +187,32 @@ mod tests {
         assert_eq!(stat_start_time("4242 (short) S 1 2"), None);
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn this_process_has_a_start_time() {
         assert!(start_time(std::process::id()).is_some());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_start_time_on_macos_is_microseconds_since_the_epoch() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_micros() as u64;
+        let started = start_time(std::process::id()).unwrap();
+        assert!(
+            started <= now && now - started < 3_600_000_000,
+            "{started} {now}"
+        );
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        assert!(start_time(child.id()).unwrap() >= started);
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(start_time(child.id()), None);
     }
 
     #[cfg(unix)]
