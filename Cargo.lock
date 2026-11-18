@@ -1474,6 +1474,7 @@ version = "0.16.0"
 dependencies = [
  "anyhow",
  "http",
+ "libc",
  "reqwest",
  "self_update",
  "serde",

@@ -18,6 +18,9 @@ http = { version = "1", optional = true }
 zip = { version = "6", default-features = false, features = ["deflate"], optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"], optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [features]
 default = ["self-update"]
 # Fetching a release is the half that links a network stack. A caller that only
