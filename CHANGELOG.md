@@ -10,6 +10,8 @@ anything breaking is two repositories.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-18
+
 ### Added
 
 - `proc::start_time` answers on macOS too, in microseconds since the epoch
